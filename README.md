@@ -80,22 +80,25 @@ It **ships with this pak but is switched off by default.** Enable it from the in
 
 It is off by default for one specific reason: **memory.**
 
-### Memory: it grows, so Swap.pak is worth having
+### Memory: Swap.pak is required, not optional
 
-Two samples on a Brick (1 GB total), same session, with the voxel mod on:
+Measured across a session on a Smart Pro S (962 MB RAM), voxel mod on:
 
-| | LÖVE RSS | Memory free |
-|---|---|---|
-| Early, ~1 min in | 183 MB | ~358 MB |
-| Later | **386 MB** | **~55–95 MB** |
+| Point in session | LÖVE RSS | Free | Paging |
+|---|---|---|---|
+| Start | 151 MB | 619 MB | none |
+| A few minutes in | 524 MB | 143 MB | none |
+| Later | **722 MB** | 35 MB | **22 of 30 samples** |
 
-Usage roughly doubled as play continued, and free memory fell to under 100 MB. No swap was touched in either sample, but the trend is the point: the headroom is going away, and the nx-redux project reports peaks near 750 MB, which a longer session could plausibly reach.
+At the end: `VmPeak` 1.58 GB virtual, 108 MB actually swapped out, and `pswpout` spikes of up to 4,730 pages per sample. **The 1 GB swap is the only reason it was not OOM-killed.**
 
-So: install [Swap.pak](https://github.com/carroarmato0/NextUI-Swap-Pak) if you intend to use the voxel mod for more than a few minutes. **512 MB on internal storage** — swap-in is ~17.3 MB/s internally against ~2.8 MB/s from the card, roughly 6× faster — with its boot hook enabled so it survives a reboot.
+So: **install [Swap.pak](https://github.com/carroarmato0/NextUI-Swap-Pak) before using the voxel mod.** 512 MB on internal storage, boot hook enabled. Internal rather than the card matters here — swap-in runs ~17.3 MB/s internally against ~2.8 MB/s from an SD card.
 
-Two caveats. Swap does not survive a NextUI firmware update. And it does not make anything faster: it trades storage speed for capacity, preventing an OOM kill rather than raising your frame rate — this mod is GPU-bound, not memory-bound, so swap buys you a session that does not die, not a smoother one.
+This README previously said the mod peaked around 183 MB and that swap was probably unnecessary. That was drawn from a single early sample and was wrong; the figure climbs steadily with play and the ~750 MB reported by the nx-redux project is accurate.
 
-Check your own numbers with `scripts/profile-device.sh 60`.
+It is not a leak. The mod caches meshes per map and evicts down to a live set of the current map plus connected neighbours, so the working set is bounded — but on a large, well-connected outdoor area that bound is around 700 MB. Expect indoor and small maps to be far lighter, and expect the worst on open routes.
+
+Once it starts paging, the stalls are disk waits and no graphics setting will touch them. Swap keeps the session alive; it does not make it smooth.
 
 ### Why the mod's update check fails
 
@@ -107,26 +110,35 @@ Two separate things, worth telling apart:
 
 So: a failed update check on the voxel mod specifically is expected. The mod itself still loads and runs.
 
-### Performance: GPU-bound, and the FPS cap does not help
+### Performance: the bottleneck differs by device
 
-Measured on a Brick, sampling only while rendering:
+Measured with `scripts/profile-device.sh`, sampling only while rendering.
 
-| Setting | GPU median | GPU p75 | System CPU p75 |
+**TrimUI Brick** (A133, PowerVR GE8300, 4 cores) — **GPU-bound:**
+
+| Setting | GPU median | GPU p75 |
+|---|---|---|
+| MAX FPS 60 | 91% | 96% |
+| MAX FPS 30 | 92% | 99% |
+
+Capping the frame rate changed nothing, and that is worth understanding rather than retrying. The cap is a sleep budget in the run loop, so it only binds when frames are produced *faster* than the target. With the GPU pinned near 99% under a 30 cap, the device is already below 30 fps and there is nothing to hold back — and 30 is the floor of the ladder (`FrameCap.MIN`). An earlier version of this README recommended capping at 30 as the biggest win; measurement says it is not.
+
+**TrimUI Smart Pro S** (sun55iw3, Mali-G57 single core, 8 cores, big.LITTLE) — **not GPU-bound, until it runs out of memory:**
+
+| | GPU median | GPU p75 | System CPU p75 |
 |---|---|---|---|
-| MAX FPS 60 | 91% | 96% | — |
-| MAX FPS 30 | 92% | 99% | 39% |
+| Default scheduling | 67% | 72% | 19% |
+| Threads pinned to the big cluster | **83%** | **88%** | 20% |
 
-**Capping the frame rate changed nothing.** That is worth understanding rather than retrying: the cap is a sleep budget applied by the run loop, so it only binds when frames are being produced *faster* than the target. With the GPU pinned near 99% at a 30 cap, the device is already rendering below 30 fps and there is nothing for the cap to hold back. `MAX FPS 30` is also the floor of the ladder (`FrameCap.MIN = 30`), so there is no lower setting to reach for.
+NextUI leaves only three cores online and the scheduler parked LÖVE's main thread — the one driving rendering — on a *little* core at 936 MHz while the big cluster idled at 2160 MHz. This pak now brings all eight cores online and pins every LÖVE thread to the big cluster with a cpuset, which lifted GPU utilisation by about 16 points: more frames getting through.
 
-An earlier version of this README recommended capping at 30 as the biggest win. Measurement says otherwise; it is not.
+(That comparison is imperfect. The pinned run was also deep enough into the session to be swapping, so some of the difference is confounded by memory pressure.)
 
-The CPU is not the constraint either — system CPU peaked at 53% across four cores, with LÖVE itself using about two. The A133's PowerVR GPU is the ceiling and has no userspace clock control, so the only remaining lever is **drawing less**:
+On both devices the CPU as a whole is nowhere near saturated — 19–39% across all cores. Single-thread speed and thread placement matter; total CPU capacity does not.
 
-- lower the voxel mod's own quality settings in `OPTIONS`
-- cheaper **VOID FILL** (the default draws trees in the empty space around the map)
-- explicitly set **PERFORMANCE**, rather than leaving it on `AUTO`
+Remaining levers, in order: **make sure swap exists** (see above — on the Smart Pro S it is the binding constraint), then lower the voxel mod's own quality settings, then a cheaper **VOID FILL**. The mod's mesh ring is a hardcoded constant, so draw distance is not adjustable.
 
-Be realistic about the ceiling: this is a 3D renderer running on a budget handheld GPU. The 2D game runs comfortably; the voxel look costs a lot, and on a Brick it does not reach 30 fps. Measure your own with `scripts/profile-device.sh 60`.
+Be realistic: this is a 3D renderer on budget handheld silicon. The 2D game runs comfortably on both.
 
 ## Controls
 
@@ -193,7 +205,7 @@ Honest status. An untested device is listed as untested, not assumed to work.
 | TrimUI Brick | `tg5040` | 1024×768 | **Runs.** GLES 3 context, ROM import, 2D game, voxel mod and controller mapping (A confirms) all verified on hardware. Audio not yet confirmed |
 | TrimUI Smart Pro | `tg5040` | 1280×720 | Not tested — same platform as the Brick, so likely fine, but unverified |
 | TrimUI Brick Pro | `tg5040` | 1024×768 | Not tested |
-| TrimUI Smart Pro S | `tg5050` | 1280×720 | Not tested — different SoC (Cortex-A55 + Mali) and untried |
+| TrimUI Smart Pro S | `tg5050` | 1280×720 | **Runs.** Profiled with the voxel mod; needs swap. Audio not yet confirmed |
 
 The runtime itself is known to work on this hardware class — the LÖVE 11.5 ARM64 build here is the same one shipped by [PortMaster](https://portmaster.games/), and [nx-redux](https://github.com/mohammadsyuhada/nx-redux) runs Gen1Recomp with the voxel mod on both platforms. What is untested is *this pak*.
 
