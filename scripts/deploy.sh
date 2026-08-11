@@ -18,7 +18,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PAK="$ROOT/build/Gen1Recomp.pak"
 PLATFORM="${DEPLOY_PLATFORM:-tg5050}"
 DEST_REL="Emus/$PLATFORM/Gen1Recomp.pak"
-ROMDIR_REL="Roms/Pokemon Gen 1 (Gen1Recomp)"
+ROMDIR_REL="Roms/Gen1Recomp (Gen1Recomp)"
 
 say()  { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 fail() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -57,7 +57,7 @@ else
     say "done."
     cat <<EOF
 
-Next: on the device open Games > Pokemon Gen 1 > Gen1Recomp.
+Next: on the device open Games > Gen1Recomp > Gen1Recomp.
 Read the log with:
   adb shell cat /mnt/SDCARD/.userdata/$PLATFORM/logs/Gen1Recomp.txt
 Or run the checked version:

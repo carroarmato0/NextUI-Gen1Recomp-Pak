@@ -28,7 +28,7 @@ DEPLOY_PLATFORM=tg5050 scripts/verify-device.sh
       cannot be justified on stock NextUI
 - [ ] Voxel mod, with Swap.pak at 512 MB on **internal** storage and the boot hook
       enabled: no OOM kill across a long session. **Record peak memory and frame rate**
-- [ ] Box art renders; the folder reads "Pokemon Gen 1" and the entry "Gen1Recomp"
+- [ ] Box art renders; the folder and entry both read "Gen1Recomp"
 
 ### Before publishing
 

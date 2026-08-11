@@ -76,7 +76,7 @@ log_of() { cat "$1/SDCARD/.userdata/tg5050/logs/Gen1Recomp.txt" 2>/dev/null; }
 echo
 echo "no ROM present -- must still launch, and say why"
 SB="$(make_sandbox)"
-run_launch "$SB" "$SB/SDCARD/Roms/Pokemon Gen 1 (Gen1Recomp)/Gen1Recomp.g1r"
+run_launch "$SB" "$SB/SDCARD/Roms/Gen1Recomp (Gen1Recomp)/Gen1Recomp.g1r"
 grep -q "LOVE_ARGV: $SB/pak/game" "$SB/stub.out" 2>/dev/null
 check $? "launches the game even with no ROM (never a black screen)"
 log_of "$SB" | grep -q "no match found"
@@ -204,9 +204,9 @@ rm -rf "$SB"
 echo
 echo ".love diagnostic passthrough"
 SB="$(make_sandbox)"
-mkdir -p "$SB/SDCARD/Roms/Pokemon Gen 1 (Gen1Recomp)"
-printf 'not-really-a-zip' > "$SB/SDCARD/Roms/Pokemon Gen 1 (Gen1Recomp)/_smoke.love"
-run_launch "$SB" "$SB/SDCARD/Roms/Pokemon Gen 1 (Gen1Recomp)/_smoke.love"
+mkdir -p "$SB/SDCARD/Roms/Gen1Recomp (Gen1Recomp)"
+printf 'not-really-a-zip' > "$SB/SDCARD/Roms/Gen1Recomp (Gen1Recomp)/_smoke.love"
+run_launch "$SB" "$SB/SDCARD/Roms/Gen1Recomp (Gen1Recomp)/_smoke.love"
 grep -q "LOVE_ARGV: .*_smoke.love" "$SB/stub.out" 2>/dev/null
 check $? "a .love entry is passed through to the runtime"
 log_of "$SB" | grep -q "diagnostics only"

@@ -37,13 +37,15 @@ Credit for the game itself belongs entirely upstream. This repository is packagi
 
 ```
 /mnt/SDCARD/Emus/tg5050/Gen1Recomp.pak/     # or tg5040
-/mnt/SDCARD/Roms/Pokemon Gen 1 (Gen1Recomp)/
+/mnt/SDCARD/Roms/Gen1Recomp (Gen1Recomp)/
     Gen1Recomp.g1r                          # empty file; this is the launchable entry
 ```
 
 The `.g1r` file is a 0-byte stub, and it has to exist: NextUI can only launch *files* from a ROM folder, never directories, so the stub is what appears as an entry. The game itself lives in the pak.
 
-Then open **Games → Pokemon Gen 1 → Gen1Recomp**.
+Then open **Games → Gen1Recomp → Gen1Recomp**.
+
+The folder appears under Games as **Gen1Recomp** — NextUI hides the `(Gen1Recomp)` tag, which is what maps the folder to this pak.
 
 ## First run: your ROM
 

@@ -85,9 +85,11 @@ trap cleanup EXIT INT TERM HUP QUIT
 # OpenAL initialisation thumps the speaker. Mute across it, then unmute and let
 # syncsettings.elf restore the user's saved volume level.
 echo 1 > /sys/class/speaker/mute 2>/dev/null
+# syncsettings.elf prints the whole ALSA mixer state and every SetRaw* call it
+# makes; unredirected that buried love's own output under ~60 lines of noise.
 ( sleep 5
   echo 0 > /sys/class/speaker/mute 2>/dev/null
-  syncsettings.elf 2>/dev/null ) &
+  syncsettings.elf >/dev/null 2>&1 ) &
 
 # --- controller ------------------------------------------------------------
 # SDL's positional mapping puts "confirm" on the physical B button. Override to

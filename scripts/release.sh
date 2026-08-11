@@ -68,7 +68,7 @@ done
 # Ship the ROM folder skeleton so the entry exists the moment the card boots.
 # NextUI cannot launch a directory (addEntries marks it ENTRY_DIR unless it ends
 # .pak), so the launchable entry has to be a file -- this 0-byte stub.
-ROMDIR="$PZ/Roms/Pokemon Gen 1 (Gen1Recomp)"
+ROMDIR="$PZ/Roms/Gen1Recomp (Gen1Recomp)"
 mkdir -p "$ROMDIR/.media"
 : > "$ROMDIR/Gen1Recomp.g1r"
 cat > "$ROMDIR/.media/README.txt" <<'EOF'

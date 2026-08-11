@@ -21,7 +21,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PLATFORM="${DEPLOY_PLATFORM:-tg5050}"
 SD=/mnt/SDCARD
 LOG="$SD/.userdata/$PLATFORM/logs/Gen1Recomp.txt"
-ROMDIR="$SD/Roms/Pokemon Gen 1 (Gen1Recomp)"
+ROMDIR="$SD/Roms/Gen1Recomp (Gen1Recomp)"
 
 SMOKE_ONLY=0; DO_DEPLOY=1
 for a in "$@"; do
@@ -86,7 +86,7 @@ adb push "$SMOKE_LOVE" "$ROMDIR/_smoke.love" >/dev/null 2>&1 \
 
 cat <<EOF
 
-  On the device: Games > Pokemon Gen 1 > _smoke
+  On the device: Games > Gen1Recomp > _smoke
   It draws a moving square and plays a tone for a few seconds, then quits.
   Listen for a clean tone with no pop and no crackle.
 
@@ -147,7 +147,7 @@ fi
 # ------------------------------------------------------------------- the game
 cat <<EOF
 
-  Now launch the real thing: Games > Pokemon Gen 1 > Gen1Recomp
+  Now launch the real thing: Games > Gen1Recomp > Gen1Recomp
   Start a new game, walk around a little, save, then quit.
 
 EOF
@@ -205,7 +205,7 @@ README's "Tested on" table; leave a device untested rather than assuming.
       Enable the mod in-game, play for several minutes, watch for an OOM kill:
         adb shell 'while :; do grep MemAvailable /proc/meminfo; sleep 5; done'
       Note peak usage and frame rate.
-  [ ] Box art rendered, the folder read "Pokemon Gen 1", the entry "Gen1Recomp".
+  [ ] Box art rendered; the folder and entry both read "Gen1Recomp".
 EOF
 
 printf '\n\033[1m%d passed, %d failed, %d warnings\033[0m\n' "$PASS" "$FAIL" "$WARN"
