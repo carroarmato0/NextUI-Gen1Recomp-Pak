@@ -56,13 +56,15 @@ So you do not need to move or copy anything. **Leave your dump where you already
 
 It hashes the `.gb`/`.gbc` files it finds, copies the first match into the engine's import folder, and starts the game. Your file is only ever read: never moved, renamed or modified.
 
-Accepted dumps, by SHA-1 (1 MiB US cartridges only):
+Accepted dumps (1 MiB US cartridges only). Check yours on the device with `sha256sum <file>`:
 
-| Version | SHA-1 |
+| Version | SHA-256 |
 |---|---|
-| Red | `ea9bcae617fdf159b045185467ae58b2e4a48b9a` |
-| Blue | `d7037c83e1ae5b39bde3c30787637ba1d4c48ce2` |
-| Yellow | `cc7d03262ebfaf2f06772c1a480c7d9d5f4a38e1` |
+| Red | `5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b` |
+| Blue | `2a951313c2640e8c2cb21f25d1db019ae6245d9c7121f754fa61afd7bee6452d` |
+| Yellow | `8cbaa499397e4f1a679c992ea9382a2dd7942ab398b48c19829c2d9529de47bf` |
+
+SHA-256 rather than the SHA-1 upstream publishes, because these handhelds ship `sha256sum` but not `sha1sum`. The engine still runs its own SHA-1 verification when it imports, so a dump has to satisfy both.
 
 **If nothing matches**, the pak still starts the game and lets Gen1Recomp's own launcher take over, where its *Choose ROM* screen explains what to do. You get an explanation on screen rather than a black one. The log lists which folders were searched.
 

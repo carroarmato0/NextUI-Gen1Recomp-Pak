@@ -60,10 +60,37 @@
     "love_identity": "pokemon-love2d",
     "base_roms_dir": "baseroms",
     "gbcfx_env": "POKEPORT_GBCFX",
+    "_rom_sha1_comment": [
+      "The identifiers upstream publishes, and what the engine itself verifies at",
+      "import time. Asserted against the payload so an upstream change is caught,",
+      "but NOT used by launch.sh -- see rom_sha256."
+    ],
     "rom_sha1": {
       "red": "ea9bcae617fdf159b045185467ae58b2e4a48b9a",
       "blue": "d7037c83e1ae5b39bde3c30787637ba1d4c48ce2",
       "yellow": "cc7d03262ebfaf2f06772c1a480c7d9d5f4a38e1"
-    }
+    },
+
+    "_rom_sha256_comment": [
+      "What launch.sh actually matches on. These devices ship sha256sum and md5sum",
+      "but NO sha1sum (verified on a Trimui Brick, 2026-08-11), so the original",
+      "SHA-1 scan matched nothing at all -- silently. Red and Blue were confirmed",
+      "against real dumps on-device; Yellow follows by elimination from the same",
+      "published set. A wrong value fails safe: the engine's own SHA-1 check still",
+      "gates the import, so the player lands on Choose ROM, not on bad data."
+    ],
+    "rom_sha256": {
+      "red": "5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b",
+      "blue": "2a951313c2640e8c2cb21f25d1db019ae6245d9c7121f754fa61afd7bee6452d",
+      "yellow": "8cbaa499397e4f1a679c992ea9382a2dd7942ab398b48c19829c2d9529de47bf"
+    },
+
+    "_device_tools_comment": [
+      "Commands confirmed ABSENT on a Trimui Brick running NextUI (2026-08-11).",
+      "launch.sh must not invoke any of these unless guarded by `command -v`,",
+      "because the failure mode is silent: sha1sum produced no output and the ROM",
+      "scan matched nothing, with no error logged anywhere. verify.sh enforces it."
+    ],
+    "device_missing_tools": ["sha1sum", "stat", "openssl", "cksum", "nproc"]
   }
 }

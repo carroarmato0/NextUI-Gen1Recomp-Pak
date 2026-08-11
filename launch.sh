@@ -209,8 +209,20 @@ export POKEPORT_GBCFX="${POKEPORT_GBCFX:-0}"
 # Game Boy folders they already use and copy the first match across.
 #
 # The player's own files are only ever read -- never moved, renamed or modified.
+#
+# Matched by SHA-256, not the SHA-1 upstream publishes. These devices ship
+# sha256sum and md5sum but NO sha1sum (verified on a Trimui Brick, 2026-08-11),
+# so a SHA-1 scan silently matched nothing at all. The constants below were
+# cross-checked against real Red and Blue dumps on-device.
+#
+# The scan is only a convenience pre-filter: the engine still performs its own
+# authoritative SHA-1 check at import time. So even a wrong constant here fails
+# safe -- the player lands on Choose ROM rather than importing wrong data.
 BASEROMS="$STATE/love/pokemon-love2d/baseroms"
 GENERATED="$STATE/love/pokemon-love2d/data/generated"
+ROM_SHA256_RED=5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b
+ROM_SHA256_BLUE=2a951313c2640e8c2cb21f25d1db019ae6245d9c7121f754fa61afd7bee6452d
+ROM_SHA256_YELLOW=8cbaa499397e4f1a679c992ea9382a2dd7942ab398b48c19829c2d9529de47bf
 
 rom_already_present() {
     [ -d "$GENERATED" ] && return 0
@@ -222,48 +234,57 @@ rom_already_present() {
 
 if rom_already_present; then
     echo "rom       already imported; skipping the scan"
+elif ! command -v sha256sum >/dev/null 2>&1; then
+    # Degrade rather than guess. Copying an unverified 1 MiB file into the import
+    # folder would just make the engine reject it later with less explanation.
+    echo "rom       sha256sum unavailable on this device; skipping the scan."
+    echo "rom       Use the game's Choose ROM screen instead."
 else
-    echo "rom       scanning for a US Red/Blue/Yellow dump"
+    echo "rom       scanning for US Red/Blue/Yellow dumps"
     ROMS="${ROMS_PATH:-${SDCARD_PATH:-/mnt/SDCARD}/Roms}"
-    found=""
+    imported=0
+    # Import EVERY version found, not just the first. The engine keeps the three
+    # games' data side by side and its launcher lets the player pick, so stopping
+    # at the first hit would arbitrarily hide the others -- and since the scan runs
+    # in alphabetical order, "first" would silently mean Blue over Red.
     for dir in "$ROMS/Game Boy (GB)" "$ROMS/Game Boy Color (GBC)"; do
         [ -d "$dir" ] || continue
         echo "rom         looking in $dir"
         for rom in "$dir"/*.gb "$dir"/*.gbc; do
             [ -f "$rom" ] || continue
             # Skip AppleDouble junk: a macOS "._cart.gb" ends in .gb and would
-            # otherwise win the scan ahead of the real dump.
+            # otherwise be hashed pointlessly.
             case "$(basename "$rom")" in ._*) continue ;; esac
-            sha=$(sha1sum "$rom" 2>/dev/null | cut -d' ' -f1)
+            sha=$(sha256sum "$rom" 2>/dev/null | cut -d' ' -f1)
             case "$sha" in
-                ea9bcae617fdf159b045185467ae58b2e4a48b9a) found="$rom"; version=Red ;;
-                d7037c83e1ae5b39bde3c30787637ba1d4c48ce2) found="$rom"; version=Blue ;;
-                cc7d03262ebfaf2f06772c1a480c7d9d5f4a38e1) found="$rom"; version=Yellow ;;
+                "$ROM_SHA256_RED")    version=Red ;;
+                "$ROM_SHA256_BLUE")   version=Blue ;;
+                "$ROM_SHA256_YELLOW") version=Yellow ;;
                 *) continue ;;
             esac
-            break
+            echo "rom       matched $version: $rom"
+            mkdir -p "$BASEROMS"
+            if cp -f "$rom" "$BASEROMS/$(basename "$rom")"; then
+                imported=$((imported + 1))
+            else
+                echo "rom       WARNING: could not copy $version into the import folder"
+            fi
         done
-        [ -n "$found" ] && break
     done
 
-    if [ -n "$found" ]; then
-        echo "rom       matched $version: $found"
-        mkdir -p "$BASEROMS"
-        if cp -f "$found" "$BASEROMS/$(basename "$found")"; then
-            echo "rom       copied into the import folder; the game will import it on boot"
-        else
-            echo "rom       WARNING: copy failed; use the game's Choose ROM screen instead"
-        fi
+    if [ "$imported" -gt 0 ]; then
+        echo "rom       imported $imported dump(s); the game decodes them on boot"
     else
         # Not an error. The game's own launcher has a Choose ROM screen with
         # on-screen instructions, which is a far better failure mode than exiting
         # to a black screen.
         echo "rom       no match found. Starting the built-in launcher so you can"
         echo "rom       use its Choose ROM screen."
-        echo "rom       Accepted dumps (1 MiB US cartridges only), by SHA-1:"
-        echo "rom         Red    ea9bcae617fdf159b045185467ae58b2e4a48b9a"
-        echo "rom         Blue   d7037c83e1ae5b39bde3c30787637ba1d4c48ce2"
-        echo "rom         Yellow cc7d03262ebfaf2f06772c1a480c7d9d5f4a38e1"
+        echo "rom       Accepted dumps (1 MiB US cartridges only), by SHA-256:"
+        echo "rom         Red    $ROM_SHA256_RED"
+        echo "rom         Blue   $ROM_SHA256_BLUE"
+        echo "rom         Yellow $ROM_SHA256_YELLOW"
+        echo "rom       Check yours on the device with: sha256sum <file>"
     fi
 fi
 

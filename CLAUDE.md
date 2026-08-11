@@ -67,6 +67,11 @@ the pak directory — a pak update would otherwise destroy them.
   `main.lua` (inside the pak dir) and a pak update wipes saves. We set `XDG_DATA_HOME` instead.
 - **The upstream voxel mod repo (`DramaticShape/DramaticShapeVoxelMod`) is gone — 404.** The only
   source is the community backup `linkfy/DramaticShapeVoxelModBackup`, pinned at 1.7.2.
+- **The device has no `sha1sum`.** It ships `sha256sum` and `md5sum` only (confirmed on a
+  Trimui Brick). The ROM scan therefore matches on SHA-256, and `upstream.lock`'s
+  `contracts.device_missing_tools` is enforced by `verify.sh` — the original SHA-1 scan
+  matched nothing and logged no error, so nothing off-device could have caught it. `stat`,
+  `taskset`, `openssl`, `cksum` and `nproc` are also absent.
 - **The controller GUID in `launch.sh` is unverified** until someone runs `test/smoke.love` on real
   hardware. It prints every joystick's name and GUID for exactly this reason.
 - **The CPU-tuning block in `launch.sh` may be unnecessary** on stock NextUI, which already sets the

@@ -38,6 +38,12 @@ group(){ printf '\n\033[1m%s\033[0m\n' "$1"; }
 # `grep -c` consumes all of stdin, so no signal is ever delivered.
 matches() { [ "$(grep -cE "$1" 2>/dev/null || true)" -gt 0 ]; }
 
+# launch.sh with comments stripped. Checks that forbid a *behaviour* must look at
+# code only: launch.sh discusses several traps in prose precisely because they are
+# traps, and grepping the whole file flags the documentation instead of the thing
+# being documented.
+code_only() { sed 's/[[:space:]]*#.*$//' "$ROOT/launch.sh" | grep -v '^[[:space:]]*$'; }
+
 command -v jq >/dev/null || { echo "jq is required" >&2; exit 2; }
 [ -d "$PAK" ] || { echo "build/Gen1Recomp.pak not found -- run scripts/build.sh first" >&2; exit 2; }
 
@@ -178,14 +184,33 @@ for v in red blue yellow; do
 done
 check $sha_ok "all three canonical ROM SHA-1s still appear in the payload"
 
-# launch.sh and the payload must agree on the hashes, or the scan silently
-# imports nothing.
+# launch.sh matches on SHA-256, not SHA-1, because these devices have no sha1sum.
+# If a constant drifts from the lock, the scan silently imports nothing.
 ls_ok=0
 for v in red blue yellow; do
-    h=$(jqlock ".contracts.rom_sha1.$v")
-    grep -q "$h" "$ROOT/launch.sh" || { bad "launch.sh is missing the $v SHA-1"; ls_ok=1; }
+    h=$(jqlock ".contracts.rom_sha256.$v")
+    grep -q "$h" "$ROOT/launch.sh" || { bad "launch.sh is missing the $v SHA-256"; ls_ok=1; }
 done
-check $ls_ok "launch.sh carries the same three SHA-1s as upstream.lock"
+check $ls_ok "launch.sh carries the same three ROM SHA-256s as upstream.lock"
+
+# Regression guard for a bug that only a device could find: launch.sh matched ROMs
+# with sha1sum, which does not exist on these handhelds. It emitted nothing,
+# matched nothing, and logged no error. The absent-tool list is now a contract.
+tool_ok=0
+while IFS= read -r t; do
+    [ -n "$t" ] || continue
+    if code_only | matches "(^|[^a-zA-Z0-9_-])${t}([^a-zA-Z0-9_-]|$)"; then
+        # A guarded use is fine -- that is how taskset is handled.
+        code_only | matches "command -v ${t}" && continue
+        bad "launch.sh invokes '$t', absent on the device, with no 'command -v' guard"
+        tool_ok=1
+    fi
+done < <(jq -r '.contracts.device_missing_tools[]?' "$LOCK")
+check $tool_ok "launch.sh avoids tools known to be missing on the device"
+
+# The scan is worthless if the hasher it needs is not there.
+code_only | matches 'sha256sum'
+check $? "launch.sh uses sha256sum (present on device) for the ROM scan"
 
 # ----------------------------------------------------------- voxel mod
 group "Voxel mod"
@@ -209,11 +234,6 @@ check $? "shebang is #!/bin/sh, not bash (PortMaster can hijack /bin/bash on the
 bashisms=$(grep -nE '\[\[|\bfunction [a-zA-Z_]|[a-zA-Z_]+\+=|<<<|\bdeclare\b|\blocal\b|\bsource\b|&>' "$ROOT/launch.sh" || true)
 [ -z "$bashisms" ]
 check $? "no obvious bashisms${bashisms:+ -- $bashisms}"
-
-# These forbid particular *behaviour*, so they must look at code only. launch.sh
-# discusses all three in comments precisely because they are traps, and grepping
-# the whole file flags the documentation instead of the thing being documented.
-code_only() { sed 's/[[:space:]]*#.*$//' "$ROOT/launch.sh" | grep -v '^[[:space:]]*$'; }
 
 code_only | matches 'nextui_exec' && bad "launch.sh touches /tmp/nextui_exec (removing it powers the device off)" || ok "does not touch /tmp/nextui_exec"
 

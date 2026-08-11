@@ -81,8 +81,8 @@ grep -q "LOVE_ARGV: $SB/pak/game" "$SB/stub.out" 2>/dev/null
 check $? "launches the game even with no ROM (never a black screen)"
 log_of "$SB" | grep -q "no match found"
 check $? "logs that no ROM matched"
-log_of "$SB" | grep -q "ea9bcae617fdf159b045185467ae58b2e4a48b9a"
-check $? "logs the accepted SHA-1s so the user can check their dump"
+log_of "$SB" | grep -q "5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b"
+check $? "logs the accepted SHA-256s so the user can check their dump"
 log_of "$SB" | grep -q "Game Boy (GB)"
 check $? "logs which folders were searched"
 rm -rf "$SB"
@@ -121,19 +121,24 @@ echo "ROM scan matches by hash and copies into the import folder"
 SB="$(make_sandbox)"
 FIXTURE="$SB/SDCARD/Roms/Game Boy (GB)/Pokemon Red (USA).gb"
 head -c 1048576 /dev/urandom > "$FIXTURE"
-FIX_SHA="$(sha1sum "$FIXTURE" | cut -d' ' -f1)"
+FIX_SHA="$(sha256sum "$FIXTURE" | cut -d' ' -f1)"
 # Stand the fixture's hash in for Red's. Everything else -- the globbing over a
 # path with spaces and parens, the ._ filter, the copy -- is the real code path.
-sed -i "s/ea9bcae617fdf159b045185467ae58b2e4a48b9a/$FIX_SHA/" "$SB/pak/launch.sh"
+#
+# SHA-256, not SHA-1: the device ships no sha1sum, which is why the scan matches
+# on sha256 (see upstream.lock contracts.rom_sha256).
+sed -i "s/5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b/$FIX_SHA/" "$SB/pak/launch.sh"
 # AppleDouble decoy, deliberately sorted ahead of the real dump.
 printf 'junk' > "$SB/SDCARD/Roms/Game Boy (GB)/._Pokemon Red (USA).gb"
 
 run_launch "$SB" ""
 log_of "$SB" | grep -q "matched Red"
-check $? "identifies the version by SHA-1 through a path with spaces and parens"
+check $? "identifies the version by SHA-256 through a path with spaces and parens"
+log_of "$SB" | grep -q "imported 1 dump"
+check $? "reports how many dumps were imported"
 [ -f "$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d/baseroms/Pokemon Red (USA).gb" ]
 check $? "copies the dump into the engine's import folder"
-[ -f "$FIXTURE" ] && [ "$(sha1sum "$FIXTURE" | cut -d' ' -f1)" = "$FIX_SHA" ]
+[ -f "$FIXTURE" ] && [ "$(sha256sum "$FIXTURE" | cut -d' ' -f1)" = "$FIX_SHA" ]
 check $? "leaves the user's own file untouched"
 # The decoy sorts ahead of the real dump, so a naive scan would copy it. Assert
 # on the import folder's actual contents rather than on log text, which would
@@ -174,6 +179,25 @@ rm -f "$SB/pak/game/main.lua"
 run_launch "$SB" ""
 [ $? -ne 0 ] && log_of "$SB" | grep -q "FATAL"
 check $? "exits non-zero with FATAL when the game payload is missing"
+rm -rf "$SB"
+
+# --------------------------------------------------------------------------
+echo
+echo "imports every version present, not just the first"
+SB="$(make_sandbox)"
+GB="$SB/SDCARD/Roms/Game Boy (GB)"
+head -c 1048576 /dev/urandom > "$GB/Pokemon - Blue Version.gb"
+head -c 1048576 /dev/urandom > "$GB/Pokemon - Red Version.gb"
+B_SHA="$(sha256sum "$GB/Pokemon - Blue Version.gb" | cut -d' ' -f1)"
+R_SHA="$(sha256sum "$GB/Pokemon - Red Version.gb" | cut -d' ' -f1)"
+sed -i "s/2a951313c2640e8c2cb21f25d1db019ae6245d9c7121f754fa61afd7bee6452d/$B_SHA/" "$SB/pak/launch.sh"
+sed -i "s/5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b/$R_SHA/" "$SB/pak/launch.sh"
+run_launch "$SB" ""
+BR="$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d/baseroms"
+[ "$(find "$BR" -type f | wc -l)" -eq 2 ]
+check $? "both dumps imported (Blue sorts first but must not hide Red)"
+log_of "$SB" | grep -q "imported 2 dump"
+check $? "reports both imports"
 rm -rf "$SB"
 
 # --------------------------------------------------------------------------
