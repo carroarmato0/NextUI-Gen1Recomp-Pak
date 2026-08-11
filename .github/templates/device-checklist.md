@@ -14,7 +14,9 @@ DEPLOY_PLATFORM=tg5050 scripts/verify-device.sh
 - [ ] Window is the panel's native resolution (1280×720, or 1024×768 on Brick)
 - [ ] Audio initialised, and no XRUN/underruns in the log
 - [ ] Controller GUID matches the mapping shipped in `launch.sh`
-- [ ] ROM found and imported by SHA-1; the rescan is skipped on relaunch
+- [ ] ROM found and staged by SHA-256, from whichever (GB)/(GBC) folder holds it;
+      the rescan is skipped on relaunch
+- [ ] CPU state matches before/after — especially which cores are online
 - [ ] Saves land in `.userdata/shared/Gen1Recomp`, and no `portable.txt` is in the payload
 - [ ] The frontend relaunched cleanly after the game exited
 
@@ -28,7 +30,7 @@ DEPLOY_PLATFORM=tg5050 scripts/verify-device.sh
       cannot be justified on stock NextUI
 - [ ] Voxel mod, with Swap.pak at 512 MB on **internal** storage and the boot hook
       enabled: no OOM kill across a long session. **Record peak memory and frame rate**
-- [ ] Box art renders; the folder and entry both read "Gen1Recomp"
+- [ ] It appears under **Tools** as "Gen1Recomp" and launches from there
 
 ### Before publishing
 

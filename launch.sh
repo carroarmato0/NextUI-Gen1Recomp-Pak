@@ -1,20 +1,21 @@
 #!/bin/sh
-# Gen1Recomp.pak -- NextUI Emu pak launcher (tg5040 / tg5050)
+# Gen1Recomp.pak -- NextUI Tool pak launcher (tg5040 / tg5050)
 #
 # POSIX sh on purpose, NOT bash. On cards that have had PortMaster installed,
 # /bin/bash can be a symlink into PortMaster's vendored bin, so a bash shebang
 # would quietly reintroduce the dependency this pak exists to avoid.
 #
-# NextUI invokes this as:  launch.sh '<path to the selected ROM-folder entry>'
-# The entry is a 0-byte stub (Gen1Recomp.g1r); the real payload lives here in
-# the pak. NextUI cannot launch a directory, which is why a stub file exists.
+# NextUI invokes this from the Tools menu with NO arguments. This was an Emu pak
+# in v0.1.0, which needed a ROM folder and a 0-byte launchable stub inside it --
+# a directory NextUI will not launch and a file users had to already have for the
+# entry to exist at all. The game imports the player's dump itself, so none of
+# that bought anything: Tools is where a self-contained application belongs.
 #
 # Section A is the generic LOVE 11.5 runtime bring-up and is deliberately free
 # of any Gen1Recomp knowledge, so it can be lifted into a generic LOVE pak.
 # Section B is everything specific to this game.
 
 PAK_DIR="$(cd "$(dirname "$0")" && pwd)"
-ENTRY="${1:-}"
 
 ###############################################################################
 # Section A -- LOVE 11.5 runtime bring-up (game-agnostic)
@@ -33,7 +34,6 @@ echo "=== Gen1Recomp.pak ==="
 echo "date      $(date 2>/dev/null)"
 echo "platform  ${PLATFORM:-<unset>}  device ${DEVICE:-<unset>}"
 echo "pak       $PAK_DIR"
-echo "entry     ${ENTRY:-<none>}"
 
 [ -x "$PAK_DIR/bin/love.aarch64" ] || {
     echo "FATAL: $PAK_DIR/bin/love.aarch64 is missing or not executable."
@@ -61,7 +61,6 @@ echo "state     $STATE"
 #
 # Keep the original path: system helpers spawned below load libmsettings.so from
 # .system/lib, which a game-first override would shadow.
-ORIG_LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}"
 export LD_LIBRARY_PATH="$PAK_DIR/libs.aarch64:/usr/trimui/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 # --- audio routing ---------------------------------------------------------
@@ -75,12 +74,28 @@ else
 fi
 
 # --- cleanup ---------------------------------------------------------------
-# CPU state is restored here, not left to the frontend. Measured on a Brick: after
-# the game exits, the governor was still schedutil with the ceiling we raised --
-# NextUI does not put it back, so without this the pak silently changes how the
-# device behaves for everything the player does afterwards.
+# Put back everything the CPU block below changes, rather than leaving it to the
+# frontend.
+#
+# The frontend does undo part of it: NextUI's launch loop runs
+# `governor.sh performance` around each pak and its UI then resets to `auto`, so
+# the governor and the frequency ceiling get overwritten shortly after we exit
+# whatever we do. Restoring them is cheap and keeps the window between our exit
+# and the frontend's own reset honest.
+#
+# Which cores are ONLINE is the half that nothing else puts back. NextUI offlines
+# 5 of the Smart Pro S's 8 cores once, at boot; we bring them all up, so a core we
+# fail to restore stays up for the remainder of the user's session, costing
+# battery in every app that follows. Invisible on a Brick, where all 4 start up.
 CPU_SAVED=""
+CPU_ONLINE_SAVED=""
 save_cpu_state() {
+    # cpu0 has no `online` node -- it cannot be offlined -- so the glob skips it.
+    for node in /sys/devices/system/cpu/cpu[0-9]*/online; do
+        [ -r "$node" ] || continue
+        CPU_ONLINE_SAVED="$CPU_ONLINE_SAVED$node	$(cat "$node" 2>/dev/null)
+"
+    done
     for pol in /sys/devices/system/cpu/cpufreq/policy*; do
         [ -d "$pol" ] || continue
         CPU_SAVED="$CPU_SAVED$pol	$(cat "$pol/scaling_governor" 2>/dev/null)	$(cat "$pol/scaling_max_freq" 2>/dev/null)	$(cat "$pol/scaling_min_freq" 2>/dev/null)
@@ -88,7 +103,6 @@ save_cpu_state() {
     done
 }
 restore_cpu_state() {
-    [ -n "$CPU_SAVED" ] || return 0
     printf '%s' "$CPU_SAVED" | while IFS="$(printf '\t')" read -r pol gov mx mn; do
         [ -d "$pol" ] || continue
         # Floor before ceiling on the way back down, mirroring the order used when
@@ -96,6 +110,12 @@ restore_cpu_state() {
         [ -n "$mn" ] && echo "$mn" > "$pol/scaling_min_freq" 2>/dev/null
         [ -n "$mx" ] && echo "$mx" > "$pol/scaling_max_freq" 2>/dev/null
         [ -n "$gov" ] && echo "$gov" > "$pol/scaling_governor" 2>/dev/null
+    done
+    # Offlining last, after the policies are back: a policy directory disappears
+    # with its last online core, so doing this first would leave nothing to write.
+    printf '%s' "$CPU_ONLINE_SAVED" | while IFS="$(printf '\t')" read -r node was; do
+        [ -w "$node" ] || continue
+        [ -n "$was" ] && echo "$was" > "$node" 2>/dev/null
     done
 }
 
@@ -129,10 +149,12 @@ echo 1 > /sys/class/speaker/mute 2>/dev/null
 # the Nintendo layout so physical A confirms, which is what every other NextUI
 # screen does. Create the xbox_layout file to opt out.
 #
-# UNVERIFIED: this GUID was taken from a working third-party implementation but
-# has not been confirmed against real hardware here. test/smoke.love prints the
-# name and GUID of every connected joystick -- run it and correct this if they
-# disagree, otherwise the mapping silently does nothing.
+# UNCONFIRMED: this GUID was taken from a working third-party implementation and
+# has never been compared against what the hardware reports. Physical A does
+# confirm on a Brick, but that is not proof this line caused it -- the default
+# mapping could produce the same result. test/smoke/ prints the name and GUID of
+# every connected joystick; run it and correct this if they disagree, otherwise
+# the mapping silently does nothing.
 if [ ! -f "$STATE/xbox_layout" ]; then
     export SDL_GAMECONTROLLERCONFIG="030000005e0400008e02000014010000,TRIMUI Player1,a:b1,b:b0,back:b6,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,dpup:h0.1,guide:b8,leftshoulder:b4,leftstick:b9,lefttrigger:a2,leftx:a0,lefty:a1,rightshoulder:b5,rightstick:b10,righttrigger:a5,rightx:a3,righty:a4,start:b7,x:b3,y:b2,platform:Linux,"
 fi
@@ -209,6 +231,10 @@ else
     # Create big-cores-off in the state dir to disable.
     BIG_CPUS=""
     if [ -d /sys/devices/system/cpu/cpufreq/policy4 ]; then
+        # The cat is not useless: `tr ... < file` on a sysfs node that is absent
+        # is a redirection error, which POSIX has a non-interactive shell exit
+        # on. cat lets a missing node be an empty result instead of a dead pak.
+        # shellcheck disable=SC2002
         BIG_CPUS="$(cat /sys/devices/system/cpu/cpufreq/policy4/related_cpus 2>/dev/null | tr " " ",")"
     fi
     CS=/sys/fs/cgroup/cpuset
@@ -223,7 +249,7 @@ else
               while [ "$i" -lt 20 ]; do
                   pid=$(pidof love.aarch64 2>/dev/null)
                   if [ -n "$pid" ]; then
-                      for t in /proc/$pid/task/*; do
+                      for t in /proc/"$pid"/task/*; do
                           [ -e "$t" ] || continue
                           echo "${t##*/}" > "$CS/gen1recomp/tasks" 2>/dev/null
                       done
@@ -257,29 +283,52 @@ fi
 
 GAME="$PAK_DIR/game"
 
-# Diagnostic passthrough, NOT a feature.
+# --- leftovers from the v0.1.0 Emu layout ----------------------------------
+# An in-place upgrade installs the Tool pak but cannot remove the old one, so the
+# Emu pak stays in Emus/ and its ROM folder keeps showing a Gen1Recomp entry
+# under Games that now runs a stale copy. Say so; do not delete anything --
+# that folder is on the player's card and may hold box art they made.
+SD="${SDCARD_PATH:-/mnt/SDCARD}"
+legacy=""
+# Every platform directory, not just $PLATFORM: the leftover is whatever the old
+# install put there, which need not match the platform running now.
+for old in "$SD"/Emus/*/Gen1Recomp.pak "$SD/Roms/Gen1Recomp (Gen1Recomp)"; do
+    [ -d "$old" ] && legacy="$legacy$old
+"
+done
+if [ -n "$legacy" ]; then
+    echo "legacy    a v0.1.0 Emu install is still on the card. It is now a duplicate"
+    echo "legacy    entry under Games running an older copy. Delete by hand:"
+    printf '%s' "$legacy" | while read -r old; do echo "legacy      $old"; done
+    echo "legacy    Saves are unaffected -- they live in $STATE."
+fi
+
+# Diagnostic hook, NOT a feature.
 #
-# If the selected entry is a .love archive, run that instead of the bundled game.
-# This exists so test/smoke.love can exercise Section A through the real launch
-# path -- which is the only way to see GLES context creation and the controller's
-# true GUID, since running LOVE from an adb shell would fight the frontend for
-# the display.
+# If a .love archive is sitting at the root of the state directory, run that
+# instead of the bundled game. This exists so test/smoke/ can exercise
+# Section A through the real launch path -- the only way to see GLES context
+# creation and the controller's true GUID, since running LOVE from an adb shell
+# would fight the frontend for the display.
+#
+# It lives in the state dir because a Tool pak is launched with no arguments:
+# there is no longer an entry to select, so the diagnostic has to be discovered.
+# verify-device.sh pushes it, runs it, and removes it again.
 #
 # This pak is Gen1Recomp-specific and makes no promise about arbitrary LOVE games:
 # no per-game save isolation, no controller profiles, nothing. If you want a
 # general-purpose LOVE runtime, Section A is the part worth lifting into one.
-case "$ENTRY" in
-    *.love)
-        if [ -f "$ENTRY" ]; then
-            echo "diag      running .love passthrough: $ENTRY"
-            echo "diag      (diagnostics only -- arbitrary LOVE games are unsupported)"
-            cd "$PAK_DIR" || exit 1
-            # shellcheck disable=SC2086
-            exec "$PAK_DIR/bin/love.aarch64" "$ENTRY"
-        fi
-        echo "diag      entry looks like a .love but does not exist: $ENTRY"
-        ;;
-esac
+DIAG=""
+for f in "$STATE"/*.love; do
+    [ -f "$f" ] && { DIAG="$f"; break; }
+done
+if [ -n "$DIAG" ]; then
+    echo "diag      running $DIAG instead of the game"
+    echo "diag      (diagnostics only -- arbitrary LOVE games are unsupported)"
+    echo "diag      delete it from $STATE to get the game back"
+    cd "$PAK_DIR" || exit 1
+    exec "$PAK_DIR/bin/love.aarch64" "$DIAG"
+fi
 
 [ -f "$GAME/main.lua" ] || { echo "FATAL: $GAME/main.lua is missing."; exit 1; }
 
@@ -343,13 +392,30 @@ else
     echo "rom       scanning for US Red/Blue/Yellow dumps"
     ROMS="${ROMS_PATH:-${SDCARD_PATH:-/mnt/SDCARD}/Roms}"
     imported=0
+    scanned=0
     # Import EVERY version found, not just the first. The engine keeps the three
     # games' data side by side and its launcher lets the player pick, so stopping
     # at the first hit would arbitrarily hide the others -- and since the scan runs
     # in alphabetical order, "first" would silently mean Blue over Red.
-    for dir in "$ROMS/Game Boy (GB)" "$ROMS/Game Boy Color (GBC)"; do
+    # Which folder holds the player's dumps is their choice, not ours. NextUI maps
+    # a ROM folder to a system by the tag in its LAST parentheses, falling back to
+    # the whole folder name when there are none (utils.c:getEmuName) -- so
+    # "Game Boy (GB)", "My Game Boy Stuff (GB)" and plain "GB" are all one system
+    # to the frontend. Mirror that rule rather than hard-coding two display names:
+    # this scan is now the only way a dump gets imported, and against a renamed
+    # folder a hard-coded name finds nothing and says nothing is wrong.
+    for dir in "$ROMS"/*; do
         [ -d "$dir" ] || continue
+        tag="${dir##*/}"
+        case "$tag" in
+            *\(*\)*) tag="${tag##*\(}"; tag="${tag%%\)*}" ;;
+        esac
+        case "$tag" in
+            GB|GBC|gb|gbc) ;;
+            *) continue ;;
+        esac
         echo "rom         looking in $dir"
+        scanned=$((scanned + 1))
         for rom in "$dir"/*.gb "$dir"/*.gbc; do
             [ -f "$rom" ] || continue
             # Skip AppleDouble junk: a macOS "._cart.gb" ends in .gb and would
@@ -379,6 +445,13 @@ else
         # Not an error. The game's own launcher has a Choose ROM screen with
         # on-screen instructions, which is a far better failure mode than exiting
         # to a black screen.
+        if [ "$scanned" -eq 0 ]; then
+            # Distinguish "your dump is not one of the three" from "there is
+            # nowhere to look" -- the fixes are completely different.
+            echo "rom       no Game Boy folder found under $ROMS. A folder counts"
+            echo "rom       when its name ends in (GB) or (GBC), or is exactly GB"
+            echo "rom       or GBC -- the same rule NextUI uses to pick an emulator."
+        fi
         echo "rom       no match found. Starting the built-in launcher so you can"
         echo "rom       use its Choose ROM screen."
         echo "rom       Accepted dumps (1 MiB US cartridges only), by SHA-256:"

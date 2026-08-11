@@ -78,6 +78,9 @@ swap_events=0; n=0; busy_n=0; gpu_zero=0
 elapsed=0
 
 while [ "$elapsed" -lt "$DURATION" ]; do
+    # Single-quoted on purpose: this whole block is a script for the DEVICE's
+    # shell, and nothing in it may expand here. (SC2016)
+    # shellcheck disable=SC2016
     sample="$(adb shell '
 P=$(pidof love.aarch64)
 # GPU utilisation comes from a different node per SoC:
@@ -105,7 +108,10 @@ echo "${GPU:-0} ${CPU:-0} ${RSS:-0} ${SWP:-0} ${AVAIL:-0} ${IN:-0} ${OUT:-0} ${1
 
     # shellcheck disable=SC2086
     set -- $sample
-    gpu="${1:-0}"; cpu="${2:-0}"; rss="${3:-0}"; swp="${4:-0}"; avail="${5:-0}"
+    # Field 4 is love's own VmSwap and is deliberately not unpacked: the swapping
+    # signal reported below is the system-wide pswpin/pswpout delta, which catches
+    # thrashing caused by anything on the device, not only by love.
+    gpu="${1:-0}"; cpu="${2:-0}"; rss="${3:-0}"; avail="${5:-0}"
     swin="${6:-0}"; swout="${7:-0}"; tot="${8:-0}"; idle="${9:-0}"; pj="${10:-0}"
     pid="${11:-none}"
 

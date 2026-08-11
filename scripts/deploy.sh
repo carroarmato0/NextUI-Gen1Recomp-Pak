@@ -17,8 +17,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PAK="$ROOT/build/Gen1Recomp.pak"
 PLATFORM="${DEPLOY_PLATFORM:-tg5050}"
-DEST_REL="Emus/$PLATFORM/Gen1Recomp.pak"
-ROMDIR_REL="Roms/Gen1Recomp (Gen1Recomp)"
+DEST_REL="Tools/$PLATFORM/Gen1Recomp.pak"
 
 say()  { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 fail() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -31,11 +30,11 @@ if [ $# -ge 1 ]; then
     CARD="${1%/}"
     [ -d "$CARD" ] || fail "$CARD is not a directory"
     say "copying to $CARD/$DEST_REL"
-    mkdir -p "$CARD/$DEST_REL" "$CARD/$ROMDIR_REL/.media"
-    rm -rf "$CARD/$DEST_REL"
+    mkdir -p "$(dirname "$CARD/$DEST_REL")"
+    # ${CARD:?} rather than $CARD: an empty CARD would make this rm -rf /Tools/...
+    rm -rf "${CARD:?}/$DEST_REL"
     cp -RL "$PAK" "$CARD/$DEST_REL"
     chmod +x "$CARD/$DEST_REL/launch.sh" "$CARD/$DEST_REL/bin/love.aarch64"
-    [ -f "$CARD/$ROMDIR_REL/Gen1Recomp.g1r" ] || : > "$CARD/$ROMDIR_REL/Gen1Recomp.g1r"
     sync
     say "done. Eject the card and boot the device."
 else
@@ -49,15 +48,14 @@ else
     # Remove first: a stale file left by an older build would otherwise survive
     # (adb push merges rather than replaces).
     adb shell "rm -rf '$SD/$DEST_REL'" >/dev/null
-    adb shell "mkdir -p '$SD/Emus/$PLATFORM' '$SD/$ROMDIR_REL/.media'" >/dev/null
+    adb shell "mkdir -p '$SD/Tools/$PLATFORM'" >/dev/null
     adb push "$PAK" "$SD/$DEST_REL" >/dev/null || fail "adb push failed"
     adb shell "chmod +x '$SD/$DEST_REL/launch.sh' '$SD/$DEST_REL/bin/love.aarch64'"
-    adb shell "[ -f '$SD/$ROMDIR_REL/Gen1Recomp.g1r' ] || : > '$SD/$ROMDIR_REL/Gen1Recomp.g1r'"
     adb shell sync
     say "done."
     cat <<EOF
 
-Next: on the device open Games > Gen1Recomp > Gen1Recomp.
+Next: on the device open Tools > Gen1Recomp.
 Read the log with:
   adb shell cat /mnt/SDCARD/.userdata/$PLATFORM/logs/Gen1Recomp.txt
 Or run the checked version:

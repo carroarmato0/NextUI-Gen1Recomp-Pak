@@ -20,6 +20,7 @@ PASS=0
 FAIL=0
 
 # Prefer a real POSIX shell. bash-as-sh hides bashisms that busybox would reject.
+# shellcheck disable=SC2209  # the literal name of an interpreter, not a command substitution
 SH=sh
 for c in dash busybox ash; do
     if command -v "$c" >/dev/null 2>&1; then
@@ -76,7 +77,7 @@ log_of() { cat "$1/SDCARD/.userdata/tg5050/logs/Gen1Recomp.txt" 2>/dev/null; }
 echo
 echo "no ROM present -- must still launch, and say why"
 SB="$(make_sandbox)"
-run_launch "$SB" "$SB/SDCARD/Roms/Gen1Recomp (Gen1Recomp)/Gen1Recomp.g1r"
+run_launch "$SB"
 grep -q "LOVE_ARGV: $SB/pak/game" "$SB/stub.out" 2>/dev/null
 check $? "launches the game even with no ROM (never a black screen)"
 log_of "$SB" | grep -q "no match found"
@@ -91,7 +92,7 @@ rm -rf "$SB"
 echo
 echo "environment and state"
 SB="$(make_sandbox)"
-run_launch "$SB" ""
+run_launch "$SB"
 [ -d "$SB/SDCARD/.userdata/shared/Gen1Recomp" ]
 check $? "creates its state dir under shared userdata, not in the pak"
 grep -q "LOVE_CWD: $SB/pak/game" "$SB/stub.out" 2>/dev/null
@@ -104,7 +105,7 @@ rm -rf "$SB"
 echo
 echo "swap hint fires only when there is no swap"
 SB="$(make_sandbox)"
-run_launch "$SB" ""
+run_launch "$SB"
 if [ "$(awk '/^SwapTotal:/ {print $2}' /proc/meminfo)" -eq 0 ]; then
     log_of "$SB" | grep -q "Install Swap.pak"
     check $? "points at Swap.pak when swap is absent"
@@ -131,7 +132,7 @@ sed -i "s/5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b/$FIX_
 # AppleDouble decoy, deliberately sorted ahead of the real dump.
 printf 'junk' > "$SB/SDCARD/Roms/Game Boy (GB)/._Pokemon Red (USA).gb"
 
-run_launch "$SB" ""
+run_launch "$SB"
 log_of "$SB" | grep -q "matched Red"
 check $? "identifies the version by SHA-256 through a path with spaces and parens"
 log_of "$SB" | grep -q "staged 1 dump"
@@ -148,9 +149,45 @@ BR="$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d"
 check $? "skips the AppleDouble decoy and imports exactly one file"
 
 # Second launch must not rescan.
-run_launch "$SB" ""
+run_launch "$SB"
 log_of "$SB" | grep -q "already imported"
 check $? "skips the scan once a ROM has been imported"
+rm -rf "$SB"
+
+# --------------------------------------------------------------------------
+# The scan is the only way a dump ever gets imported, so which folders it
+# considers is load-bearing. NextUI resolves a ROM folder to a system by the tag
+# in its last parentheses, or the whole name when there are none, so the display
+# name in front of the tag is the player's to choose.
+echo
+echo "finds dumps in any folder NextUI would call GB or GBC"
+for folder in "Nintendo Game Boy (GB)" "GB" "gbc" "Handhelds - Game Boy Color (GBC)"; do
+    SB="$(make_sandbox)"
+    mkdir -p "$SB/SDCARD/Roms/$folder"
+    head -c 1048576 /dev/urandom > "$SB/SDCARD/Roms/$folder/cart.gb"
+    SHA="$(sha256sum "$SB/SDCARD/Roms/$folder/cart.gb" | cut -d' ' -f1)"
+    sed -i "s/5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b/$SHA/" "$SB/pak/launch.sh"
+    run_launch "$SB"
+    [ -f "$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d/cart.gb" ]
+    check $? "imports from \"$folder\""
+    rm -rf "$SB"
+done
+
+SB="$(make_sandbox)"
+# "(GBA)" ends in a tag we do not want; "Game Boy Advance" has no parens at all,
+# so getEmuName would return the whole name. Neither is ours to hash.
+mkdir -p "$SB/SDCARD/Roms/Game Boy Advance (GBA)" "$SB/SDCARD/Roms/Game Boy Advance"
+head -c 1048576 /dev/urandom > "$SB/SDCARD/Roms/Game Boy Advance (GBA)/x.gb"
+run_launch "$SB"
+log_of "$SB" | grep -q "looking in .*GBA"
+if [ $? -eq 0 ]; then bad "scanned a GBA folder"; else ok "ignores folders tagged for other systems"; fi
+rm -rf "$SB"
+
+SB="$(make_sandbox)"
+rm -rf "$SB/SDCARD/Roms/Game Boy (GB)" "$SB/SDCARD/Roms/Game Boy Color (GBC)"
+run_launch "$SB"
+log_of "$SB" | grep -q "no Game Boy folder found"
+check $? "says so when there is nowhere to look, not just 'no match'"
 rm -rf "$SB"
 
 # --------------------------------------------------------------------------
@@ -159,7 +196,7 @@ echo "opt-out toggles"
 SB="$(make_sandbox)"
 mkdir -p "$SB/SDCARD/.userdata/shared/Gen1Recomp"
 touch "$SB/SDCARD/.userdata/shared/Gen1Recomp/no-cpu-tuning"
-run_launch "$SB" ""
+run_launch "$SB"
 log_of "$SB" | grep -q "tuning skipped"
 check $? "no-cpu-tuning disables the CPU block (needed to A/B the audio fix)"
 rm -rf "$SB"
@@ -169,14 +206,14 @@ echo
 echo "missing payload fails loudly rather than silently"
 SB="$(make_sandbox)"
 rm -f "$SB/pak/bin/love.aarch64"
-run_launch "$SB" ""
+run_launch "$SB"
 [ $? -ne 0 ] && log_of "$SB" | grep -q "FATAL"
 check $? "exits non-zero with FATAL when the runtime is missing"
 rm -rf "$SB"
 
 SB="$(make_sandbox)"
 rm -f "$SB/pak/game/main.lua"
-run_launch "$SB" ""
+run_launch "$SB"
 [ $? -ne 0 ] && log_of "$SB" | grep -q "FATAL"
 check $? "exits non-zero with FATAL when the game payload is missing"
 rm -rf "$SB"
@@ -192,7 +229,7 @@ B_SHA="$(sha256sum "$GB/Pokemon - Blue Version.gb" | cut -d' ' -f1)"
 R_SHA="$(sha256sum "$GB/Pokemon - Red Version.gb" | cut -d' ' -f1)"
 sed -i "s/2a951313c2640e8c2cb21f25d1db019ae6245d9c7121f754fa61afd7bee6452d/$B_SHA/" "$SB/pak/launch.sh"
 sed -i "s/5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b/$R_SHA/" "$SB/pak/launch.sh"
-run_launch "$SB" ""
+run_launch "$SB"
 BR="$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d"
 [ "$(find "$BR" -type f | wc -l)" -eq 2 ]
 check $? "both dumps imported (Blue sorts first but must not hide Red)"
@@ -202,21 +239,44 @@ rm -rf "$SB"
 
 # --------------------------------------------------------------------------
 echo
-echo ".love diagnostic passthrough"
+echo ".love diagnostic hook (state dir, since a Tool pak gets no arguments)"
 SB="$(make_sandbox)"
-mkdir -p "$SB/SDCARD/Roms/Gen1Recomp (Gen1Recomp)"
-printf 'not-really-a-zip' > "$SB/SDCARD/Roms/Gen1Recomp (Gen1Recomp)/_smoke.love"
-run_launch "$SB" "$SB/SDCARD/Roms/Gen1Recomp (Gen1Recomp)/_smoke.love"
+mkdir -p "$SB/SDCARD/.userdata/shared/Gen1Recomp"
+printf 'not-really-a-zip' > "$SB/SDCARD/.userdata/shared/Gen1Recomp/_smoke.love"
+run_launch "$SB"
 grep -q "LOVE_ARGV: .*_smoke.love" "$SB/stub.out" 2>/dev/null
-check $? "a .love entry is passed through to the runtime"
+check $? "a .love in the state dir is run instead of the game"
 log_of "$SB" | grep -q "diagnostics only"
-check $? "logs that the passthrough is diagnostics-only, not a supported feature"
+check $? "logs that the hook is diagnostics-only, not a supported feature"
 rm -rf "$SB"
 
 SB="$(make_sandbox)"
-run_launch "$SB" "$SB/SDCARD/Roms/does-not-exist.love"
+run_launch "$SB"
 grep -q "LOVE_ARGV: $SB/pak/game" "$SB/stub.out" 2>/dev/null
-check $? "a missing .love falls back to the bundled game rather than failing"
+check $? "an empty state dir runs the bundled game (the unexpanded glob is not a file)"
+rm -rf "$SB"
+
+# --------------------------------------------------------------------------
+echo
+echo "leftovers from the v0.1.0 Emu layout are reported, never deleted"
+SB="$(make_sandbox)"
+mkdir -p "$SB/SDCARD/Emus/tg5050/Gen1Recomp.pak" \
+         "$SB/SDCARD/Roms/Gen1Recomp (Gen1Recomp)"
+printf 'box art' > "$SB/SDCARD/Roms/Gen1Recomp (Gen1Recomp)/keepme"
+run_launch "$SB"
+log_of "$SB" | grep -q "Emus/tg5050/Gen1Recomp.pak"
+check $? "names the stale Emu pak so it can be removed"
+log_of "$SB" | grep -q "Roms/Gen1Recomp (Gen1Recomp)"
+check $? "names the stale ROM folder"
+[ -d "$SB/SDCARD/Emus/tg5050/Gen1Recomp.pak" ] && [ -f "$SB/SDCARD/Roms/Gen1Recomp (Gen1Recomp)/keepme" ]
+check $? "deletes nothing on the user's card"
+rm -rf "$SB"
+
+SB="$(make_sandbox)"
+run_launch "$SB"
+log_of "$SB" | grep -q "^legacy"
+if [ $? -eq 0 ]; then bad "warned about a legacy install that is not there"
+else ok "stays quiet on a clean card"; fi
 rm -rf "$SB"
 
 # --------------------------------------------------------------------------

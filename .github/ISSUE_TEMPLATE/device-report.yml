@@ -88,6 +88,6 @@ body:
       options:
         - label: The A button confirms in menus (not B)
         - label: Audio is clean — no pop on start, no crackle
-        - label: Box art and the entry name render correctly
+        - label: It appears under Tools as "Gen1Recomp" and launches from there
         - label: Returning to NextUI after quitting works
         - label: My ROM is a canonical US Red, Blue or Yellow dump

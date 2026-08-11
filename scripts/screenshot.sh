@@ -53,6 +53,8 @@ H_VIRT="${GEO##*,}"
 # Loop rather than `head -1 .../*/modes`: the Smart Pro S has several connectors
 # (card0-DP-1, card0-DSI-1) and head then emits "==> file <==" banners, which the
 # arithmetic below happily choked on. Take the first connector reporting a mode.
+# Single-quoted on purpose: it runs on the device, not here. (SC2016)
+# shellcheck disable=SC2016
 H="$(adb shell 'for f in /sys/class/drm/*/modes; do [ -s "$f" ] || continue; read -r m < "$f"; [ -n "$m" ] && { echo "$m"; break; }; done' 2>/dev/null | tr -d '\r' | head -1 | cut -dx -f2)"
 if [ -z "${H:-}" ] || [ "$H" -le 0 ] 2>/dev/null; then
     case "$W" in

@@ -2,6 +2,10 @@
 
 **Play Pokémon Red, Blue and Yellow natively on the TrimUI Brick, Smart Pro and Smart Pro S** — no emulator, and optionally with a 3D voxel overworld.
 
+![A shop interior from Pokémon Blue rendered as 3D voxels — shelves, an attendant and two player sprites, all in the original monochrome palette](docs/screenshots/main.png)
+
+*Captured on a TrimUI Brick at its native 1024×768, with the optional [3D voxel mod](#3d-voxel-mod) enabled. The 2D game looks exactly like the original.*
+
 This is a [NextUI](https://github.com/LoveRetro/NextUI) pak that packages [Gen1Recomp](https://github.com/bryanthaboi/gen1recomp), a from-scratch recreation of the Generation 1 Pokémon games written in Lua on the LÖVE engine. It runs as native ARM64 code at your handheld's own resolution and frame rate, rather than emulating a Game Boy.
 
 > **Status: verified on a TrimUI Brick and a Smart Pro S.** The runtime, ROM import, 2D game, voxel mod, controller mapping and audio have all been exercised on real hardware. The Smart Pro and Brick Pro are untested — see [Tested on](#tested-on).
@@ -23,7 +27,7 @@ Credit for the game itself belongs entirely upstream. This repository is packagi
 
 - **NextUI** on a TrimUI device — `tg5040` (Brick, Smart Pro, Brick Pro) or `tg5050` (Smart Pro S)
 - **Your own US Red, Blue or Yellow cartridge dump.** Only the three canonical 1 MiB US ROMs are accepted; the engine verifies by SHA-1 and refuses anything else
-- ~35 MB of card space, or ~16 MB if you build without the 3D mod
+- ~31 MB of card space, or ~13 MB if you build without the 3D mod
 - For the 3D voxel mod: [Swap.pak](https://github.com/carroarmato0/NextUI-Swap-Pak). See [3D voxel mod](#3d-voxel-mod)
 
 ## Install
@@ -32,31 +36,39 @@ Credit for the game itself belongs entirely upstream. This repository is packagi
 
 **Manual, from a release:**
 
-- `Gen1Recomp.pakz` — unzip at the root of your SD card. This creates the pak for both platforms plus the ROM folder, ready to go.
+- `Gen1Recomp.pakz` — unzip at the root of your SD card. This lays out both platforms, ready to go.
 - `Gen1Recomp.pak.zip` — extract into the platform folder yourself:
 
 ```
-/mnt/SDCARD/Emus/tg5050/Gen1Recomp.pak/     # or tg5040
-/mnt/SDCARD/Roms/Gen1Recomp (Gen1Recomp)/
-    Gen1Recomp.g1r                          # empty file; this is the launchable entry
+/mnt/SDCARD/Tools/tg5050/Gen1Recomp.pak/    # or tg5040
 ```
 
-The `.g1r` file is a 0-byte stub, and it has to exist: NextUI can only launch *files* from a ROM folder, never directories, so the stub is what appears as an entry. The game itself lives in the pak.
+Then open **Tools → Gen1Recomp**.
 
-Then open **Games → Gen1Recomp → Gen1Recomp**.
+That is the whole install. There is no ROM folder to create and no stub file to place — the pak is self-contained and imports your dump from wherever you already keep it.
 
-The folder appears under Games as **Gen1Recomp** — NextUI hides the `(Gen1Recomp)` tag, which is what maps the folder to this pak.
+### Upgrading from v0.1.0
+
+v0.1.0 was an Emu pak. That needed a `Roms/Gen1Recomp (Gen1Recomp)/` folder containing a 0-byte `Gen1Recomp.g1r` file before NextUI would show anything at all, and anyone whose card did not end up with both saw no entry under Games. It is a Tool pak now, so there is nothing to create.
+
+An update installs the new copy but cannot remove the old one, so **delete these by hand** or you will keep a second, stale Gen1Recomp under Games:
+
+```
+/mnt/SDCARD/Emus/<platform>/Gen1Recomp.pak/
+/mnt/SDCARD/Roms/Gen1Recomp (Gen1Recomp)/
+```
+
+**Your saves are not affected.** They have always lived in `.userdata/shared/Gen1Recomp/`, which neither folder touches. The pak logs a `legacy` line naming whatever it finds, and deletes nothing itself — that folder is yours and may hold box art you made.
 
 ## First run: your ROM
 
 Gen1Recomp needs a cartridge dump **once**. It verifies the ROM, decodes the game data into its own cache, and never reads the ROM again.
 
-So you do not need to move or copy anything. **Leave your dump where you already keep it** — the launcher looks in:
+So you do not need to move or copy anything. **Leave your dump where you already keep it** — every launch, until a dump has been imported, the pak scans your own Game Boy folders and copies what it finds into the place the engine expects.
 
-- `Roms/Game Boy (GB)/`
-- `Roms/Game Boy Color (GBC)/`
+It looks in whichever folders NextUI itself considers Game Boy or Game Boy Color: the ones whose name ends in `(GB)` or `(GBC)`, plus a folder named exactly `GB` or `GBC`. The display name in front of the tag is yours — `Game Boy (GB)`, `Nintendo Game Boy (GB)` and `GB` all work, because that is the same rule the frontend uses to decide which emulator opens a ROM.
 
-It hashes the `.gb`/`.gbc` files it finds, copies the first match into the engine's import folder, and starts the game. Your file is only ever read: never moved, renamed or modified.
+It hashes the `.gb`/`.gbc` files it finds and copies every version that matches into the engine's import folder. Your file is only ever read: never moved, renamed or modified. Once the engine has decoded a dump the scan stops running.
 
 Accepted dumps (1 MiB US cartridges only). Check yours on the device with `sha256sum <file>`:
 
@@ -196,7 +208,7 @@ Stated plainly, because these are structural rather than bugs, and knowing them 
 
 - **MENU does not quit the game.** NextUI does not intercept MENU for standalone applications, so it arrives as an ordinary button. Quit through Gen1Recomp's own launcher.
 - **Sleep does not work.** All power handling lives inside the NextUI frontend, which has exited while the game runs. Brightness and volume *do* keep working — a background daemon handles those.
-- **The pak changes CPU state while running.** It brings all cores online, raises cluster frequency ceilings, and on big.LITTLE hardware pins LÖVE to the big cluster. All of it is restored when you exit. Create `no-cpu-tuning` in the state dir to disable.
+- **The pak changes CPU state while running.** It brings all cores online, raises cluster frequency ceilings, and on big.LITTLE hardware pins LÖVE to the big cluster. Governor, ceilings, floors and which cores are online are all recorded at launch and put back on exit. The online mask is the one that matters: NextUI offlines five of the Smart Pro S's eight cores at boot and never repeats it, so a core left up by this pak would stay up for the rest of your session. Create `no-cpu-tuning` in the state dir to disable.
 
 ### The voxel mod
 
@@ -215,8 +227,8 @@ Stated plainly, because these are structural rather than bugs, and knowing them 
 
 - **Only canonical US Red, Blue and Yellow are accepted.** Other regions, revisions and ROM hacks are refused by the engine, not by this pak.
 - **Two of four devices are untested.** The Smart Pro and Brick Pro share a platform with the Brick and are likely fine, but nobody has run them. See [Tested on](#tested-on).
-- **The Pak Store has not been verified to accept this pak.** It is typed `EMU` with a mixed-case name; if the Store rewrites the directory name, the ROM folder tag would need to match. Manual installation is unaffected.
-- **A `.love` file dropped in the ROM folder will run**, but that is a diagnostics hook for the smoke test, not a feature. There is no per-game save isolation or controller profile behind it; this pak is Gen1Recomp-specific.
+- **Updating from v0.1.0 leaves the old Emu pak behind.** Nothing can remove it for you; see [Upgrading from v0.1.0](#upgrading-from-v010). Saves are unaffected.
+- **A `.love` file dropped in the state directory will run instead of the game**, but that is a diagnostics hook for the smoke test, not a feature. There is no per-game save isolation or controller profile behind it; this pak is Gen1Recomp-specific. Delete it to get the game back.
 - **The bundled CA certificate bundle is pinned and will age.** Roots expire, and a stale bundle fails exactly as silently as having none. Refresh with `scripts/build.sh --refresh-ca`.
 - **Upstream has an AI-generated-code controversy attached.** It changes nothing technically and this pak takes no position; it is mentioned so the decision is yours rather than a surprise.
 
@@ -236,11 +248,14 @@ adb shell cat /mnt/SDCARD/.userdata/tg5050/logs/Gen1Recomp.txt
 
 | Symptom | Look for |
 |---|---|
-| Entry does nothing | `FATAL` in the log — usually an incomplete install |
-| Game asks for a ROM you already have | `rom` lines: the scan reports every folder it searched |
+| Nothing happens when launched | `FATAL` in the log — usually an incomplete install |
+| Two Gen1Recomp entries, one under Games | A leftover v0.1.0 install. The log's `legacy` lines name it |
+| Game asks for a ROM you already have | `rom` lines: the scan reports every folder it searched, and says so explicitly when it found no Game Boy folder at all |
 | Audio crackles or distorts | `XRUN`. Try removing `no-cpu-tuning` from the state dir if you created it |
 | Killed during a voxel session | `SwapTotal` in the log. Set up Swap.pak as above |
 | A and B feel swapped | The controller GUID may differ on your unit — see [Contributing](#contributing) |
+
+Two lines in the log look like errors and are not. `libz.so.1: no version information available` is a symbol-versioning notice from the firmware's zlib. `AL lib: (EE) mmap commit error: Broken pipe` appears a handful of times as OpenAL starts; a Brick session with ten of them had audio working normally throughout. Neither indicates a problem on its own.
 
 ## Tested on
 
@@ -248,7 +263,7 @@ Honest status. An untested device is listed as untested, not assumed to work.
 
 | Device | Platform | Screen | Status |
 |---|---|---|---|
-| TrimUI Brick | `tg5040` | 1024×768 | **Runs.** GLES 3 context, ROM import, 2D game, voxel mod and controller mapping (A confirms) and audio all verified on hardware |
+| TrimUI Brick | `tg5040` | 1024×768 | **Runs.** GLES 3 context, ROM import, 2D game, voxel mod, controller mapping (A confirms) and audio all verified on hardware. Re-verified as a Tool pak on v0.2.0: launches from Tools, imports both Red and Blue out of an 89-ROM library, and returns cleanly to the frontend with its cpuset removed |
 | TrimUI Smart Pro | `tg5040` | 1280×720 | Not tested — same platform as the Brick, so likely fine, but unverified |
 | TrimUI Brick Pro | `tg5040` | 1024×768 | Not tested |
 | TrimUI Smart Pro S | `tg5050` | 1280×720 | **Runs.** Profiled with the voxel mod; needs swap. Audio verified |
@@ -261,7 +276,7 @@ No compiler and no cross-toolchain. Everything is fetched from pinned, hash-veri
 
 ```sh
 scripts/build.sh                 # fetch + stage into build/Gen1Recomp.pak/
-scripts/build.sh --no-voxel      # skip the ~19 MB voxel mod
+scripts/build.sh --no-voxel      # skip the voxel mod (~18 MB of the 31 MB pak)
 scripts/verify.sh                # static + contract checks
 test/test-launch.sh              # launch.sh behaviour against a fake SD card
 scripts/release.sh               # -> dist/Gen1Recomp.pak.zip and dist/Gen1Recomp.pakz
@@ -286,7 +301,7 @@ If A and B are swapped for you, the controller GUID in `launch.sh` is wrong for 
 
 This pak is **MIT**. It bundles:
 
-- **[Gen1Recomp](https://github.com/bryanthaboi/gen1recomp)** by bryanthaboi — MIT. The actual game. Upstream credits the [pret](https://github.com/pret) group's `pokered` disassembly as making the project possible.
+- **[Gen1Recomp](https://github.com/bryanthaboi/gen1recomp)** by bryanthaboi — MIT. The actual game; version **0.1.77** is bundled here. Upstream credits the [pret](https://github.com/pret) group's `pokered` disassembly as making the project possible.
 - **[LÖVE](https://love2d.org/) 11.5** — zlib. The ARM64 build comes from **[PortMaster](https://portmaster.games/)**, which is why this pak needs no compiler.
 - **DramaticShapeVoxelMod** 1.7.2 — the 3D mod. Its original repository is no longer available; the copy used here comes from the community archive [`linkfy/DramaticShapeVoxelModBackup`](https://github.com/linkfy/DramaticShapeVoxelModBackup).
 - **[NextUI](https://github.com/LoveRetro/NextUI)** — the firmware this targets.

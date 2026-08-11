@@ -9,9 +9,9 @@
 #   this repo             ->  launch.sh, pak.json, LICENSE, README.md
 #
 # Usage:
-#   scripts/build.sh [--no-voxel] [--tag vX.Y.Z] [--refresh-lock]
+#   scripts/build.sh [--no-voxel] [--tag vX.Y.Z] [--refresh-lock] [--refresh-ca]
 #
-#   --no-voxel      skip the ~8 MB voxel mod (smaller pak, no 3D)
+#   --no-voxel      skip the voxel mod: 7.8 MB to download, 18 MB of the 31 MB pak
 #   --tag           build a specific upstream tag instead of upstream.lock's
 #   --refresh-lock  resolve the LATEST upstream release and rewrite upstream.lock
 #                   with the new tag/asset/sha256 (what upstream-watch.yml uses)
@@ -39,7 +39,7 @@ while [ $# -gt 0 ]; do
     --tag)          WANT_TAG="${2:?--tag needs a value}"; shift ;;
     --refresh-lock) REFRESH_LOCK=1 ;;
     --refresh-ca)   REFRESH_CA=1 ;;
-    -h|--help)      sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)      sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *)              fail "unknown argument: $1" ;;
   esac
   shift

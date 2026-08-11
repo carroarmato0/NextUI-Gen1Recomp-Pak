@@ -59,10 +59,14 @@ jq -e . "$LOCK" >/dev/null 2>&1
 check $? "upstream.lock is valid JSON"
 
 [ "$(jq -r .name "$ROOT/pak.json")" = "Gen1Recomp" ]
-check $? "pak.json name is Gen1Recomp (must match the .pak directory and ROM folder tag)"
+check $? "pak.json name is Gen1Recomp (must match the .pak directory)"
 
-[ "$(jq -r .type "$ROOT/pak.json")" = "EMU" ]
-check $? "pak.json type is EMU"
+# TOOL, not EMU. The pak is self-contained -- it imports the player's own dump --
+# so it needs no ROM folder and no launchable stub file inside one. Typing it EMU
+# put it under Games, where it did not appear at all unless the user had also
+# created the folder and the stub by hand.
+[ "$(jq -r .type "$ROOT/pak.json")" = "TOOL" ]
+check $? "pak.json type is TOOL (it belongs in Tools, not Games)"
 
 [ "$(jq -r .release_filename "$ROOT/pak.json")" = "Gen1Recomp.pak.zip" ]
 check $? "release_filename matches what release.sh produces"
@@ -272,6 +276,11 @@ code_only | matches 'dd if=/dev/zero|mkswap|swapon' && bad "launch.sh creates sw
 
 code_only | matches 'SDL_VIDEODRIVER' && bad "launch.sh sets SDL_VIDEODRIVER -- NextUI never does; let the vendor SDL2 choose" || ok "does not set SDL_VIDEODRIVER"
 
+# NextUI passes a Tool pak no arguments at all. Reading $1 was how the Emu layout
+# received the selected ROM-folder entry; anything left reading it would now be
+# silently empty rather than obviously broken.
+code_only | matches '\$\{?[1@*]' && bad "launch.sh still reads a launch argument -- a Tool pak is invoked with none" || ok "launch.sh takes no launch argument"
+
 sh -n "$ROOT/launch.sh" 2>/dev/null
 check $? "launch.sh parses"
 
@@ -292,10 +301,17 @@ if [ -d "$DIST" ]; then
     fi
 
     if [ -f "$pakz" ]; then
-        unzip -Z1 "$pakz" | matches '^Emus/tg5040/Gen1Recomp\.pak/launch\.sh$'
-        check $? ".pakz contains Emus/tg5040/Gen1Recomp.pak/launch.sh"
-        unzip -Z1 "$pakz" | matches '^Emus/tg5050/Gen1Recomp\.pak/launch\.sh$'
-        check $? ".pakz contains Emus/tg5050/Gen1Recomp.pak/launch.sh"
+        unzip -Z1 "$pakz" | matches '^Tools/tg5040/Gen1Recomp\.pak/launch\.sh$'
+        check $? ".pakz contains Tools/tg5040/Gen1Recomp.pak/launch.sh"
+        unzip -Z1 "$pakz" | matches '^Tools/tg5050/Gen1Recomp\.pak/launch\.sh$'
+        check $? ".pakz contains Tools/tg5050/Gen1Recomp.pak/launch.sh"
+
+        # Regression guard for the v0.1.0 layout. Shipping Emus/ or a ROM folder
+        # again would put a second, stale entry under Games on every card that
+        # unpacks the .pakz.
+        unzip -Z1 "$pakz" | matches '^(Emus|Roms)/' \
+            && bad ".pakz still ships an Emus/ or Roms/ tree (this is a Tool pak now)" \
+            || ok ".pakz ships only Tools/ -- no ROM folder, no launchable stub"
     else
         note "dist/Gen1Recomp.pakz not built"
     fi

@@ -1,0 +1,20 @@
+# Repo-wide shellcheck settings. verify.sh runs shellcheck as a gate, so anything
+# disabled here is a deliberate idiom rather than a finding we are ducking --
+# each one is listed with why.
+
+# SC2015  "A && B || C is not if-then-else."
+# True in general, and not true here: the reporters (ok/bad/warn/note) always
+# return 0, so `cond && bad "..." || ok "..."` cannot fall through to C after a
+# successful B. This is the reporting idiom in verify.sh and verify-device.sh,
+# used dozens of times.
+disable=SC2015
+
+# SC2181  "Check exit code directly with 'if mycmd'."
+# SC2319  "This $? refers to a condition, not a command."
+# The check helper takes an exit status precisely so the assertion and its
+# description sit on separate, greppable lines:
+#     [ -f "$PAK/launch.sh" ]
+#     check $? "launch.sh is present"
+# Rewriting these as `if` blocks would triple the line count of both test files
+# and lose that shape.
+disable=SC2181,SC2319

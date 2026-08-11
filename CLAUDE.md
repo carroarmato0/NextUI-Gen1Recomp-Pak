@@ -1,7 +1,12 @@
 # NextUI-Gen1Recomp-Pak
 
-A NextUI **Emu pak** that runs [Gen1Recomp](https://github.com/bryanthaboi/gen1recomp) — a native
+A NextUI **Tool pak** that runs [Gen1Recomp](https://github.com/bryanthaboi/gen1recomp) — a native
 LÖVE 11.5 / LuaJIT recreation of Pokémon Red, Blue and Yellow — on TrimUI handhelds.
+
+It was an Emu pak through v0.1.0. That required a `Roms/Gen1Recomp (Gen1Recomp)/` folder holding a
+0-byte launchable stub, and users who did not get one saw no entry at all. The pak imports the
+player's dump itself, so the ROM-folder machinery bought nothing. `launch.sh` therefore takes **no
+arguments** — `verify.sh` fails if it reads `$1`.
 
 ## Critical constraints
 
@@ -39,12 +44,14 @@ shared by both platforms — there are no per-platform `bin/` or `lib/` director
 
 ```sh
 scripts/build.sh              # fetch + stage runtime and game payload (verifies upstream.lock)
-scripts/build.sh --no-voxel   # skip the ~8 MB voxel mod
+scripts/build.sh --no-voxel   # skip the voxel mod (7.8 MB download, 18 MB of the 31 MB pak)
 scripts/verify.sh             # all static + contract checks (also run by CI and release.sh)
+test/test-launch.sh           # launch.sh behaviour under dash against a fake SD card
 scripts/release.sh            # -> dist/Gen1Recomp.pak.zip and dist/Gen1Recomp.pakz
-scripts/deploy.sh             # adb push to the device
+scripts/deploy.sh             # adb push to the device (DEPLOY_PLATFORM defaults to tg5050)
 scripts/verify-device.sh      # the real functional test, over ADB
 scripts/profile-device.sh 60  # sample GPU/CPU/memory while playing
+scripts/screenshot.sh         # grab /dev/fb0 over ADB as a PNG
 ```
 
 ## Key directories
@@ -54,7 +61,9 @@ launch.sh                 the entire pak runtime; Section A is game-agnostic
 pak.json                  Pak Store manifest (independent semver)
 upstream.lock             every pinned hash; single source of truth
 scripts/                  build, verify, release, deploy, verify-device
-test/smoke.love           device diagnostic: renderer, video driver, joystick GUIDs
+test/smoke/               device diagnostic (renderer, video driver, joystick GUIDs); zipped into
+                          smoke.love by verify-device.sh, never committed as a binary
+test/test-launch.sh       off-device tests for launch.sh
 build/                    gitignored; assembled pak contents
 dist/                     gitignored; release artifacts
 ```
@@ -81,23 +90,50 @@ the pak directory — a pak update would otherwise destroy them.
   `scripts/build.sh --refresh-ca`, since roots expire and a stale bundle fails the same silent way.
 - **The voxel mod's update check fails regardless** — `DramaticShape/DramaticShapeVoxelMod` is 404.
   Unrelated to TLS, and does not stop the mod working.
-- **The voxel mod is GPU-bound, not memory-bound.** Measured on a Brick: GPU median 91% / p75
-  96% / peak 100% while rendering, LOVE peak RSS **183 MB**, zero swap activity. The ~750 MB
-  figure from nx-redux was repeated here for a while without being measured — it does not match
-  what a short overworld session shows. There is no userspace GPU clock control on this PowerVR
-  part, so the only lever is drawing less.
+- **The voxel mod is GPU-bound on a Brick and memory-bound on a Smart Pro S.** Brick: GPU median
+  91% / p75 96% / peak 100% while rendering. Smart Pro S: GPU has headroom (83% p75 once threads
+  are pinned) but RSS climbs to **~722 MB** on a 962 MB device and pages hard — swap is what keeps
+  the session alive. Memory scales with how many maps have been visited, so a short session
+  measures low: an earlier "peak RSS 183 MB, swap unnecessary" reading here came from one such
+  sample and was **wrong**. The ~750 MB nx-redux reports is accurate. There is no userspace GPU
+  clock control on the PowerVR part, so the only lever is drawing less.
 - **Do not read `scaling_cur_freq` as CPU load.** schedutil parks the clock at the ceiling
   regardless of utilisation; profile-device.sh once concluded "CPU-bound" from it on a session
   that was plainly GPU-bound. Difference `/proc/stat` jiffies instead.
-- **The controller GUID in `launch.sh` is unverified** until someone runs `test/smoke.love` on real
-  hardware. It prints every joystick's name and GUID for exactly this reason.
-- **The CPU-tuning block in `launch.sh` may be unnecessary** on stock NextUI, which already sets the
-  `performance` governor before launching a pak. It was needed on the nx-redux fork. If device
-  verification shows audio is clean without it, delete it rather than keeping it on faith.
+- **The controller GUID string in `launch.sh` is still unconfirmed**, even though the *behaviour* it
+  is meant to produce is verified — physical A confirms on a Brick. Those are different claims: the
+  default mapping could be producing that on its own. Only `test/smoke/` prints the joystick's real
+  name and GUID, and only comparing them settles whether our override does anything.
+- **Know what the CPU-tuning block actually does per platform before touching it.** NextUI runs
+  `governor.sh performance` immediately before launching any pak (`skeleton/SYSTEM/<plat>/paks/
+  MinUI.pak/launch.sh:189`), which sets `performance` at the true hardware max.
+  - On **tg5040** that is already 2.0 GHz, so our block raises nothing and its only real effect is
+    swapping `performance` for `schedutil`. The `ceilings raised` log line overstates it there.
+  - On **tg5050** the boot script offlines cpu2,3,5,6,7 and leaves 3 of 8 online
+    (`tg5050/paks/MinUI.pak/launch.sh:112-123`). Bringing them up is measured-useful (+16 points of
+    GPU utilisation with the cpuset), and it is the one thing NextUI does **not** redo afterwards —
+    so failing to restore the online mask leaks into the rest of the user's session.
+  - The audio justification inherited from nx-redux remains unverified. If it is dropped, drop the
+    governor line, not the core onlining — they are separate claims with separate evidence.
+- **`MALI_CreateWindow` in the log does not mean Mali.** The vendor SDL2 prints it on tg5040 too,
+  where the GPU is PowerVR: device-tree `compatible` is `img,gpu`, `/sys/kernel/debug/pvr/` exists,
+  and the same library exports `PVR_Vulkan_*`. Do not "correct" the platform table from that line.
 - **MENU does not quit and sleep does not work.** Nothing intercepts MENU; it arrives as SDL joystick
   button 8 (15 on Brick Pro). Brightness and volume do keep working via `keymon.elf`.
 - **NextUI cannot launch a directory.** `addEntries` marks any directory `ENTRY_DIR` unless it ends
-  `.pak`, so the ROM-folder entry must be a file — hence the 0-byte `Gen1Recomp.g1r` stub.
+  `.pak`. That is why the old Emu layout needed a 0-byte `Gen1Recomp.g1r` stub, and why it shipped
+  broken for anyone whose card lacked the folder. Under `Tools/` the `.pak` directory *is* the entry.
+- **The ROM scan is the only import path, so it matches folders the way NextUI does.** `getEmuName`
+  (`workspace/all/common/utils.c:352`) takes the tag in a folder's *last* parentheses, or the whole
+  name when there are none — `Game Boy (GB)`, `Nintendo Game Boy (GB)` and `GB` are one system to the
+  frontend. `launch.sh` mirrors that rule. It used to hard-code two display names, which found
+  nothing on a renamed folder and reported no error.
+- **An update cannot remove the v0.1.0 install.** The Emu pak and its ROM folder stay on the card and
+  keep showing a stale entry under Games. `launch.sh` logs `legacy` lines naming them and deletes
+  nothing — that folder belongs to the user and may hold their box art.
+- **The smoke test lives in the state dir, not a ROM folder.** With no launch argument, `launch.sh`
+  discovers `$STATE/*.love` and runs it instead of the game. `verify-device.sh` pushes it, prompts,
+  and removes it again — a forgotten one hides the game on every later launch.
 
 ## Coding standards
 
