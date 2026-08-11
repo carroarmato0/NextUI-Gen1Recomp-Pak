@@ -103,6 +103,14 @@ cleanup() {
     echo 0 > /sys/class/speaker/mute 2>/dev/null
     rm -f "$HOME/.asoundrc" 2>/dev/null
     restore_cpu_state
+    # Return any stragglers to the root cpuset, then drop ours. rmdir only
+    # succeeds once it is empty, which is the check we want.
+    if [ -d /sys/fs/cgroup/cpuset/gen1recomp ]; then
+        while read -r _t; do
+            echo "$_t" > /sys/fs/cgroup/cpuset/tasks 2>/dev/null
+        done < /sys/fs/cgroup/cpuset/gen1recomp/tasks 2>/dev/null
+        rmdir /sys/fs/cgroup/cpuset/gen1recomp 2>/dev/null
+    fi
 }
 trap cleanup EXIT INT TERM HUP QUIT
 
@@ -166,7 +174,6 @@ export LOVE_GRAPHICS_USE_OPENGLES="${LOVE_GRAPHICS_USE_OPENGLES:-1}"
 # The governor is left on schedutil rather than pinned to performance: the clock
 # still scales with load, which is cooler and easier on the battery, while still
 # reaching full speed under the game's sustained load.
-TASKSET=""
 if [ -f "$STATE/no-cpu-tuning" ]; then
     echo "cpu       tuning skipped (no-cpu-tuning present)"
 else
@@ -186,11 +193,45 @@ else
     done
     echo "cpu       all cores online, ceilings raised, governor schedutil"
 
-    # Big-core affinity is tg5050-only; tg5040 is a single cluster with nothing
-    # to pin onto.
-    if [ "${PLATFORM:-}" = "tg5050" ] && command -v taskset >/dev/null 2>&1; then
-        TASKSET="taskset -c 4-7"
-        echo "cpu       pinned to big cores (4-7)"
+    # Big-core affinity, on hardware that has two clusters.
+    #
+    # Measured on a Smart Pro S: the scheduler left LOVE's main thread -- the one
+    # that drives rendering -- on a little core at 936 MHz while the big cluster
+    # sat at 2160 MHz mostly idle. Moving it across dropped that thread from 51.5%
+    # to 42.5% of a core for the same work.
+    #
+    # taskset does not exist on these devices (not in busybox either), so this uses
+    # a cpuset cgroup. Threads are moved after launch by a short background poller,
+    # since the process does not exist yet at this point.
+    #
+    # Create big-cores-off in the state dir to disable.
+    BIG_CPUS=""
+    if [ -d /sys/devices/system/cpu/cpufreq/policy4 ]; then
+        BIG_CPUS="$(cat /sys/devices/system/cpu/cpufreq/policy4/related_cpus 2>/dev/null | tr " " ",")"
+    fi
+    CS=/sys/fs/cgroup/cpuset
+    if [ -n "$BIG_CPUS" ] && [ -d "$CS" ] && [ ! -f "$STATE/big-cores-off" ]; then
+        if mkdir -p "$CS/gen1recomp" 2>/dev/null \
+           && echo "$BIG_CPUS" > "$CS/gen1recomp/cpuset.cpus" 2>/dev/null; then
+            cat "$CS/cpuset.mems" > "$CS/gen1recomp/cpuset.mems" 2>/dev/null
+            echo "cpu       big-core cpuset ready (cpus $BIG_CPUS)"
+            # Poll briefly: threads are spawned over the first second or two, and a
+            # thread created after the move stays wherever it was born.
+            ( i=0
+              while [ "$i" -lt 20 ]; do
+                  pid=$(pidof love.aarch64 2>/dev/null)
+                  if [ -n "$pid" ]; then
+                      for t in /proc/$pid/task/*; do
+                          [ -e "$t" ] || continue
+                          echo "${t##*/}" > "$CS/gen1recomp/tasks" 2>/dev/null
+                      done
+                  fi
+                  i=$((i + 1))
+                  sleep 0.5
+              done ) &
+        else
+            echo "cpu       could not create a big-core cpuset; leaving placement to the scheduler"
+        fi
     fi
 fi
 
@@ -232,7 +273,7 @@ case "$ENTRY" in
             echo "diag      (diagnostics only -- arbitrary LOVE games are unsupported)"
             cd "$PAK_DIR" || exit 1
             # shellcheck disable=SC2086
-            exec $TASKSET "$PAK_DIR/bin/love.aarch64" "$ENTRY"
+            exec "$PAK_DIR/bin/love.aarch64" "$ENTRY"
         fi
         echo "diag      entry looks like a .love but does not exist: $ENTRY"
         ;;
@@ -350,8 +391,6 @@ fi
 # On return, simply exit: NextUI's launch loop relaunches the frontend itself.
 # Never remove /tmp/nextui_exec -- that is the poweroff signal.
 cd "$GAME" || { echo "FATAL: cannot cd to $GAME"; exit 1; }
-echo "launch    $TASKSET $PAK_DIR/bin/love.aarch64 $GAME"
+echo "launch    $PAK_DIR/bin/love.aarch64 $GAME"
 echo "=== love output follows ==="
-# shellcheck disable=SC2086
-# TASKSET is intentionally word-split: it is either empty or "taskset -c 4-7".
-exec $TASKSET "$PAK_DIR/bin/love.aarch64" "$GAME"
+exec "$PAK_DIR/bin/love.aarch64" "$GAME"

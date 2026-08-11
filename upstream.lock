@@ -79,17 +79,20 @@
       "yellow": "8cbaa499397e4f1a679c992ea9382a2dd7942ab398b48c19829c2d9529de47bf"
     },
     "_device_tools_comment": [
-      "Commands confirmed ABSENT on a Trimui Brick running NextUI (2026-08-11).",
-      "launch.sh must not invoke any of these unless guarded by `command -v`,",
-      "because the failure mode is silent: sha1sum produced no output and the ROM",
-      "scan matched nothing, with no error logged anywhere. verify.sh enforces it."
+      "Commands confirmed ABSENT on a Trimui Brick and a Smart Pro S running NextUI",
+      "(2026-08-11). launch.sh must not invoke any of these unless guarded by",
+      "`command -v`, because the failure mode is silent: sha1sum produced no output and",
+      "the ROM scan matched nothing, with no error logged anywhere. verify.sh enforces it.",
+      "taskset is absent even from busybox, which is why big-core affinity uses a cpuset",
+      "cgroup instead."
     ],
     "device_missing_tools": [
       "sha1sum",
       "stat",
       "openssl",
       "cksum",
-      "nproc"
+      "nproc",
+      "taskset"
     ],
     "_rom_discovery_comment": [
       "How the engine finds a dump on Linux, and therefore where launch.sh stages one.",
