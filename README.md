@@ -190,12 +190,35 @@ Deliberately outside the pak directory, so **updating or reinstalling the pak do
 
 ## Limitations
 
-Stated plainly, because they are structural rather than bugs:
+Stated plainly, because these are structural rather than bugs, and knowing them up front is cheaper than discovering them.
 
-- **MENU does not quit the game.** NextUI does not intercept MENU for standalone applications, so it reaches the game as an ordinary button. Quit through Gen1Recomp's own launcher.
-- **Sleep does not work.** All power handling lives inside the NextUI frontend, which has exited while the game runs.
-- **Brightness and volume do work.** Those are handled by a background daemon that keeps running.
-- **The frame rate is what the hardware gives you.** This is a real 3D-capable engine on a handheld GPU, not an emulator with a frame limiter.
+### On the device
+
+- **MENU does not quit the game.** NextUI does not intercept MENU for standalone applications, so it arrives as an ordinary button. Quit through Gen1Recomp's own launcher.
+- **Sleep does not work.** All power handling lives inside the NextUI frontend, which has exited while the game runs. Brightness and volume *do* keep working — a background daemon handles those.
+- **The pak changes CPU state while running.** It brings all cores online, raises cluster frequency ceilings, and on big.LITTLE hardware pins LÖVE to the big cluster. All of it is restored when you exit. Create `no-cpu-tuning` in the state dir to disable.
+
+### The voxel mod
+
+- **It is not smooth, and no setting fixes that.** On a Brick it is GPU-bound at 91–99% and renders below 30 fps. On a Smart Pro S the GPU has headroom but memory does not. The 2D game runs comfortably on both.
+- **It needs swap.** ~700 MB working set on a ~960 MB device. Without [Swap.pak](https://github.com/carroarmato0/NextUI-Swap-Pak) the session is eventually OOM-killed.
+- **Its update check always fails.** The mod's repository (`DramaticShape/DramaticShapeVoxelMod`) returns 404, so there is nothing to check against. Unrelated to the TLS fix this pak ships, and it does not stop the mod working.
+- **It is pinned at 1.7.2** — the newest version the community archive holds. Later versions are referenced elsewhere but are not obtainable from any source we can verify.
+- **Draw distance is not adjustable.** The mesh ring is a hardcoded constant, not an option, whatever third-party guides claim.
+
+### Measurement
+
+- **There is no in-game FPS counter**, and none is planned ([#225](https://github.com/bryanthaboi/gen1recomp/issues/225) closed `not_planned`). `scripts/profile-device.sh` reports GPU utilisation, CPU and memory instead, because that is what the device exposes.
+- **Performance figures here are one or two runs on one or two devices.** Directions are trustworthy; exact numbers are indicative. Three recommendations in this project were withdrawn after wider measurement — cap FPS at 30, swap unnecessary, VOID FILL saves memory — so treat single-run results, including ours, with suspicion.
+
+### Scope
+
+- **Only canonical US Red, Blue and Yellow are accepted.** Other regions, revisions and ROM hacks are refused by the engine, not by this pak.
+- **Two of four devices are untested.** The Smart Pro and Brick Pro share a platform with the Brick and are likely fine, but nobody has run them. See [Tested on](#tested-on).
+- **The Pak Store has not been verified to accept this pak.** It is typed `EMU` with a mixed-case name; if the Store rewrites the directory name, the ROM folder tag would need to match. Manual installation is unaffected.
+- **A `.love` file dropped in the ROM folder will run**, but that is a diagnostics hook for the smoke test, not a feature. There is no per-game save isolation or controller profile behind it; this pak is Gen1Recomp-specific.
+- **The bundled CA certificate bundle is pinned and will age.** Roots expire, and a stale bundle fails exactly as silently as having none. Refresh with `scripts/build.sh --refresh-ca`.
+- **Upstream has an AI-generated-code controversy attached.** It changes nothing technically and this pak takes no position; it is mentioned so the decision is yours rather than a surprise.
 
 ## Troubleshooting
 
@@ -253,7 +276,9 @@ Needs `curl`, `jq`, `zip`, `unzip`, `sha256sum`, `readelf`.
 
 ## Contributing
 
-The most useful thing you can contribute is a device report, especially on a Brick or Brick Pro. Run `scripts/verify-device.sh` and open an issue with the output.
+The most useful thing you can contribute is a **device report** — especially on a **Smart Pro** or **Brick Pro**, neither of which has ever been run on hardware. There is an issue template for it, and "it just works" is as useful as a bug.
+
+If you can, include `scripts/profile-device.sh 60` output. Everything this README claims about performance rests on one or two runs on one or two devices, so a second data point genuinely changes what it says.
 
 If A and B are swapped for you, the controller GUID in `launch.sh` is wrong for your unit — the smoke test prints the real one, and that is exactly the fix to send.
 

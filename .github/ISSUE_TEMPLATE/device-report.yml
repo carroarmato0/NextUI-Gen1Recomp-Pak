@@ -1,0 +1,93 @@
+name: Device report
+description: Tell us how it ran on your handheld — especially a Smart Pro or Brick Pro
+labels: ["device-report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The most useful thing you can contribute. Two of the four supported devices
+        have never been run on hardware, and everything we know about performance
+        comes from one or two runs on one or two devices.
+
+        A report saying "it just works" is as valuable as one reporting a problem.
+
+  - type: dropdown
+    id: device
+    attributes:
+      label: Device
+      options:
+        - TrimUI Brick
+        - TrimUI Brick Pro
+        - TrimUI Smart Pro
+        - TrimUI Smart Pro S
+        - Other (say which below)
+    validations:
+      required: true
+
+  - type: input
+    id: versions
+    attributes:
+      label: Pak version and NextUI version
+      placeholder: "Gen1Recomp.pak v0.1.0, NextUI 4.x"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: voxel
+    attributes:
+      label: Was the voxel mod on?
+      options:
+        - "No — 2D only"
+        - "Yes"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: swap
+    attributes:
+      label: Do you have Swap.pak set up?
+      description: Only matters with the voxel mod, which needs roughly 700 MB.
+      options:
+        - "Yes — internal storage"
+        - "Yes — SD card"
+        - "No"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did and what you saw. Frame rate impressions are fine — there is no in-game FPS counter, so subjective is all anyone has.
+    validations:
+      required: true
+
+  - type: textarea
+    id: profile
+    attributes:
+      label: Profiler output (optional, very useful)
+      description: |
+        From a clone of this repo with the device on ADB:
+        `scripts/profile-device.sh 60` — start it, then play for the whole window.
+      render: text
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Log (optional)
+      description: |
+        `adb shell cat /mnt/SDCARD/.userdata/<platform>/logs/Gen1Recomp.txt`
+        Please skim it first — it contains your SD card paths and ROM filenames.
+      render: text
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Quick checks
+      options:
+        - label: The A button confirms in menus (not B)
+        - label: Audio is clean — no pop on start, no crackle
+        - label: Box art and the entry name render correctly
+        - label: Returning to NextUI after quitting works
+        - label: My ROM is a canonical US Red, Blue or Yellow dump
