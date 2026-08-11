@@ -1,0 +1,172 @@
+name: Upstream watch
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Rebuild even if the upstream tag has not moved'
+        type: boolean
+        default: false
+
+# Watches bryanthaboi/gen1recomp for a new release, repackages, and then stops.
+#
+# It deliberately does NOT publish. The Pak Store serves release_filename from the
+# latest *published* release, so auto-publishing would push an untested build to
+# everyone who has the pak installed -- and CI cannot see any of the failure modes
+# that matter here (GLES, audio, input, the voxel mod's memory ceiling). The output
+# is therefore a draft release plus an issue carrying the device checklist, and a
+# human publishes after running scripts/verify-device.sh.
+#
+# Long issue/release bodies live in .github/templates/ rather than inline heredocs:
+# unindented heredoc content terminates a YAML block scalar, and the templates are
+# easier to review as prose anyway.
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    outputs:
+      moved: ${{ steps.check.outputs.moved }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo=$(jq -r .gen1recomp.repo upstream.lock)
+          have=$(jq -r .gen1recomp.tag upstream.lock)
+          latest=$(gh api "repos/$repo/releases/latest" --jq .tag_name)
+          echo "pinned=$have latest=$latest"
+          if [ "$have" = "$latest" ] && [ "${{ inputs.force }}" != "true" ]; then
+            echo "moved=false" >> "$GITHUB_OUTPUT"
+            echo "Already on $have -- nothing to do."
+          else
+            echo "moved=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  repackage:
+    needs: watch
+    if: needs.watch.outputs.moved == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tooling
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            jq zip unzip binutils shellcheck lua-check gettext-base
+
+      - name: Repin and build
+        id: build
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          scripts/build.sh --refresh-lock
+          {
+            echo "upstream_version=$(jq -r .gen1recomp.version upstream.lock)"
+            echo "upstream_tag=$(jq -r .gen1recomp.tag upstream.lock)"
+          } >> "$GITHUB_OUTPUT"
+
+      # A contract failure is the whole point of this workflow: it means upstream
+      # changed something launch.sh depends on. Surface it as an issue instead of
+      # quietly producing a broken draft.
+      - name: Static and contract checks
+        id: verify
+        continue-on-error: true
+        run: scripts/verify.sh
+
+      - name: Report a broken contract and stop
+        if: steps.verify.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sed "s|@TAG@|${{ steps.build.outputs.upstream_tag }}|g" \
+            .github/templates/contract-failure.md > /tmp/body.md
+          gh issue create \
+            --title "Upstream ${{ steps.build.outputs.upstream_tag }} breaks a contract this pak depends on" \
+            --body-file /tmp/body.md
+          exit 1
+
+      - name: Package
+        run: scripts/release.sh --skip-verify
+
+      - name: Bump the pak patch version and changelog
+        id: bump
+        env:
+          UPSTREAM: ${{ steps.build.outputs.upstream_version }}
+        run: |
+          set -euo pipefail
+          # The pak's version is independent of upstream's, so a new upstream build
+          # is a patch bump here. The upstream version is recorded in the changelog
+          # and the description so a user can tell what they actually have.
+          cur=$(jq -r .version pak.json)
+          base=${cur#v}
+          major=${base%%.*}; rest=${base#*.}
+          minor=${rest%%.*}; patch=${rest#*.}
+          new="v$major.$minor.$((patch+1))"
+          echo "new_version=$new" >> "$GITHUB_OUTPUT"
+
+          jq -c --arg v "$new" --arg up "$UPSTREAM" '
+            .version = $v
+            | .description = (.description
+                | sub("Gen1Recomp [0-9]+\\.[0-9]+\\.[0-9]+"; "Gen1Recomp " + $up))
+            | .changelog = ({ ($v): ["Updated to Gen1Recomp " + $up + "."] } + .changelog)
+          ' pak.json > pak.json.tmp
+          mv pak.json.tmp pak.json
+          scripts/verify.sh --skip-lint
+          echo "pak.json now at $new (Gen1Recomp $UPSTREAM)"
+
+      - name: Open a PR with the new pins
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          branch="upstream/${{ steps.build.outputs.upstream_tag }}"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add upstream.lock pak.json
+          git commit -m "Update to Gen1Recomp ${{ steps.build.outputs.upstream_version }} (${{ steps.bump.outputs.new_version }})"
+          git push -u origin "$branch" --force
+          gh pr create \
+            --title "Update to Gen1Recomp ${{ steps.build.outputs.upstream_version }} (${{ steps.bump.outputs.new_version }})" \
+            --body "Automated repin. Static and contract checks passed; **not verified on hardware**. Work the device checklist issue before publishing the draft release." \
+            --head "$branch" || echo "PR already exists"
+
+      - name: Create a DRAFT release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sed "s|@UPSTREAM@|${{ steps.build.outputs.upstream_version }}|g" \
+            .github/templates/draft-notes.md > /tmp/notes.md
+          gh release create "${{ steps.bump.outputs.new_version }}" --draft \
+            --target "${{ steps.pr.outputs.branch }}" \
+            --title "${{ steps.bump.outputs.new_version }} (Gen1Recomp ${{ steps.build.outputs.upstream_version }})" \
+            --notes-file /tmp/notes.md \
+            dist/Gen1Recomp.pak.zip dist/Gen1Recomp.pakz
+
+      - name: Open the device verification checklist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sed -e "s|@NEW@|${{ steps.bump.outputs.new_version }}|g" \
+              -e "s|@UPSTREAM@|${{ steps.build.outputs.upstream_version }}|g" \
+              -e "s|@BRANCH@|${{ steps.pr.outputs.branch }}|g" \
+            .github/templates/device-checklist.md > /tmp/checklist.md
+          gh issue create \
+            --title "Verify ${{ steps.bump.outputs.new_version }} (Gen1Recomp ${{ steps.build.outputs.upstream_version }}) on device" \
+            --body-file /tmp/checklist.md

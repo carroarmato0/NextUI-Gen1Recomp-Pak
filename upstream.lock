@@ -1,0 +1,69 @@
+{
+  "_comment": [
+    "Every third-party artifact this pak bundles, pinned by sha256. scripts/build.sh",
+    "verifies each one and fails closed; scripts/verify.sh re-checks the assembled tree.",
+    "The upstream-watch workflow diffs 'gen1recomp.tag' against the latest GitHub release",
+    "and rewrites this file when it moves.",
+    "",
+    "Note on the LOVE runtime: the four libs plus the love stub are NOT downloaded",
+    "separately from PortMaster. Upstream's RG34XXSP port zip already contains them, and",
+    "they were confirmed byte-identical to PortMaster-GUI's love_11.5 aarch64 runtime on",
+    "2026-08-11. Taking them from the release zip means one pinned download instead of six,",
+    "and guarantees the runtime is the exact build upstream tested that game version with.",
+    "The hashes below are therefore assertions about the zip's contents, not fetch targets --",
+    "if upstream ever ships a different LOVE build, build.sh fails and a human decides."
+  ],
+
+  "gen1recomp": {
+    "repo": "bryanthaboi/gen1recomp",
+    "tag": "v0.1.77",
+    "version": "0.1.77",
+    "asset": "gen1recomp-0.1.77-rg34xxsp-stockos64-mod.zip",
+    "sha256": "01de7975e186cd495d88b54fd0a69bc767812be505526b66a9d4982cd924e697",
+    "size": 5110563
+  },
+
+  "love_runtime": {
+    "version": "11.5",
+    "origin": "PortsMaster/PortMaster-GUI PortMaster/runtimes/love_11.5 (aarch64)",
+    "extracted_from": "gen1recomp release asset, path gen1recomp/",
+    "files": {
+      "bin/love.aarch64": "c6c64453ed6163c8aeb14d303bad1e4d9ecc4d628097b3c6420ada2fa6a8690f",
+      "libs.aarch64/liblove-11.5.so": "a50c83729cb0e1c4d8389eaaa827f0a6e7f3362814d0504ca84074dd0e47c379",
+      "libs.aarch64/libluajit-5.1.so.2": "b4b29431056a11fb2309d1327ac941193ad8113ca7bf48584af9965846fabc65",
+      "libs.aarch64/libmodplug.so.1": "026b2287c9d68f920cf541b68b94f1a691168e4bbf301a8793f4114808aa8f95",
+      "libs.aarch64/libogg.so.0": "66015f344b53895affd3ff153f402097ebaa2add33246bea2d7fca27b682e07a"
+    }
+  },
+
+  "voxel_mod": {
+    "_comment": [
+      "The mod's own repo, DramaticShape/DramaticShapeVoxelMod, returns 404 -- it is gone.",
+      "The community backup below is the only remaining source, so this is a fixed pin at",
+      "1.7.2 (the newest the backup holds) rather than a 'latest' lookup. If the upstream",
+      "repo ever returns, revisit."
+    ],
+    "name": "DRAMATIC_SHAPE",
+    "version": "1.7.2",
+    "url": "https://raw.githubusercontent.com/linkfy/DramaticShapeVoxelModBackup/main/DRAMATIC_SHAPE-1.7.2.zip",
+    "sha256": "fe8af5180e7f430dd9d9667f7370db4d886d25714209dc949413972d3bf82307",
+    "size": 8157766,
+    "install_path": "game/mods/DRAMATIC_SHAPE"
+  },
+
+  "contracts": {
+    "_comment": [
+      "Assumptions launch.sh hard-codes. verify.sh asserts each against the staged payload so",
+      "an upstream change breaks the build loudly instead of producing a black screen on device."
+    ],
+    "love_version": "11.5",
+    "love_identity": "pokemon-love2d",
+    "base_roms_dir": "baseroms",
+    "gbcfx_env": "POKEPORT_GBCFX",
+    "rom_sha1": {
+      "red": "ea9bcae617fdf159b045185467ae58b2e4a48b9a",
+      "blue": "d7037c83e1ae5b39bde3c30787637ba1d4c48ce2",
+      "yellow": "cc7d03262ebfaf2f06772c1a480c7d9d5f4a38e1"
+    }
+  }
+}

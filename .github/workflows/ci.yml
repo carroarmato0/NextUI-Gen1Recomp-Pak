@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# CI can verify packaging and upstream contracts. It cannot verify the pak works:
+# GitHub runners have no aarch64 TrimUI, no Mali/PowerVR GPU and no NextUI, so
+# GLES, audio, input and frame rate are all unobservable here. Functional testing
+# is scripts/verify-device.sh, run by a human on hardware.
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tooling
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            jq zip unzip binutils shellcheck lua-check
+
+      - name: Cache upstream downloads
+        uses: actions/cache@v4
+        with:
+          # Keyed on the lockfile: a pin change must miss the cache, or we would
+          # verify yesterday's artifact against today's hashes.
+          path: .cache
+          key: upstream-${{ hashFiles('upstream.lock') }}
+
+      - name: Build
+        run: scripts/build.sh
+
+      - name: Static and contract checks
+        run: scripts/verify.sh
+
+      - name: launch.sh behaviour (under dash, the device's shell family)
+        # ubuntu-latest ships dash as /bin/sh, so this exercises launch.sh in a
+        # real POSIX shell rather than bash-in-posix-mode, which is what hides
+        # bashisms locally.
+        run: test/test-launch.sh
+
+      - name: Package
+        run: scripts/release.sh --skip-verify
+
+      - name: Re-verify the packaged artifacts
+        run: scripts/verify.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pak-artifacts
+          path: |
+            dist/Gen1Recomp.pak.zip
+            dist/Gen1Recomp.pakz
+          retention-days: 14
+          if-no-files-found: error

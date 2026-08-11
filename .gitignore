@@ -1,0 +1,14 @@
+.worktrees/
+.remember/
+.superpowers/
+.serena/
+.claude/
+.tokensave/
+docs/superpowers/
+
+# Build output. Everything under build/ is fetched or derived by scripts/build.sh
+# and is reproducible from upstream.lock, so none of it belongs in git -- the
+# LOVE runtime alone is ~4.9 MB and the voxel mod another ~8 MB.
+build/
+dist/
+.cache/

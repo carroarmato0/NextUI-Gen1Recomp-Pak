@@ -1,0 +1,286 @@
+#!/usr/bin/env bash
+# Static and contract checks over the staged pak in build/Gen1Recomp.pak/.
+#
+# Scope, stated plainly: this verifies PACKAGING and CONTRACTS. It cannot tell you
+# the pak works. GitHub runners have no aarch64 TrimUI, no Mali/PowerVR GPU and no
+# NextUI, so GLES, audio, input, frame rate and the voxel mod's memory ceiling are
+# all outside what any CI job here can observe. scripts/verify-device.sh is the
+# functional test.
+#
+# The contract checks are the valuable half. launch.sh hard-codes assumptions about
+# upstream's payload; if upstream changes one, the failure mode on device is a black
+# screen with no explanation. Better to fail here, loudly, with a name attached.
+#
+# Usage: scripts/verify.sh [--skip-lint]
+set -uo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+LOCK="$ROOT/upstream.lock"
+PAK="$ROOT/build/Gen1Recomp.pak"
+DIST="$ROOT/dist"
+SKIP_LINT=0
+[ "${1:-}" = "--skip-lint" ] && SKIP_LINT=1
+
+PASS=0; FAIL=0
+ok()   { PASS=$((PASS+1)); printf '  \033[1;32mok\033[0m   %s\n' "$1"; }
+bad()  { FAIL=$((FAIL+1)); printf '  \033[1;31mFAIL\033[0m %s\n' "$1"; }
+note() { printf '  \033[1;33m--\033[0m   %s\n' "$1"; }
+check(){ if [ "$1" = 0 ]; then ok "$2"; else bad "$2"; fi; }
+group(){ printf '\n\033[1m%s\033[0m\n' "$1"; }
+
+# matches <extended-regex>  -- reads stdin, true if at least one line matches.
+#
+# Use this instead of `producer | grep -q`. `grep -q` exits at the first hit,
+# which SIGPIPEs the producer; under `pipefail` the pipeline then reports 141 and
+# a successful match is read as a failure. That bit us for real: checking the
+# .pakz listing for tg5040 (match at line 649 of 1306) failed while the identical
+# tg5050 check (line 1299, close enough to EOF that the producer finished) passed.
+# `grep -c` consumes all of stdin, so no signal is ever delivered.
+matches() { [ "$(grep -cE "$1" 2>/dev/null || true)" -gt 0 ]; }
+
+command -v jq >/dev/null || { echo "jq is required" >&2; exit 2; }
+[ -d "$PAK" ] || { echo "build/Gen1Recomp.pak not found -- run scripts/build.sh first" >&2; exit 2; }
+
+jqlock() { jq -r "$1" "$LOCK"; }
+
+# ---------------------------------------------------------------- manifest
+group "Manifest"
+
+jq -e . "$ROOT/pak.json" >/dev/null 2>&1
+check $? "pak.json is valid JSON"
+
+jq -e . "$LOCK" >/dev/null 2>&1
+check $? "upstream.lock is valid JSON"
+
+[ "$(jq -r .name "$ROOT/pak.json")" = "Gen1Recomp" ]
+check $? "pak.json name is Gen1Recomp (must match the .pak directory and ROM folder tag)"
+
+[ "$(jq -r .type "$ROOT/pak.json")" = "EMU" ]
+check $? "pak.json type is EMU"
+
+[ "$(jq -r .release_filename "$ROOT/pak.json")" = "Gen1Recomp.pak.zip" ]
+check $? "release_filename matches what release.sh produces"
+
+[[ "$(jq -r .version "$ROOT/pak.json")" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+check $? "version is v-prefixed semver"
+
+[ "$(jq -r '.platforms|sort|join(",")' "$ROOT/pak.json")" = "tg5040,tg5050" ]
+check $? "platforms are exactly tg5040 and tg5050 (NextUI supports no others)"
+
+jq -e --arg v "$(jq -r .version "$ROOT/pak.json")" '.changelog[$v]' "$ROOT/pak.json" >/dev/null 2>&1
+check $? "the current version has a changelog entry"
+
+# The pak's own version is independent of upstream's, so the bundled upstream
+# version has to be discoverable somewhere a user will actually look.
+jq -r .description "$ROOT/pak.json" | matches "$(jqlock '.gen1recomp.version')"
+check $? "description names the bundled Gen1Recomp version ($(jqlock '.gen1recomp.version'))"
+
+# A manifest that lists screenshots which are not in the repo renders as broken
+# images in the Pak Store. An empty list is honest; a wrong one is not.
+missing_shots=""
+while IFS= read -r s; do
+    [ -n "$s" ] || continue
+    [ -f "$ROOT/$s" ] || missing_shots="$missing_shots $s"
+done < <(jq -r '.screenshots[]?' "$ROOT/pak.json")
+[ -z "$missing_shots" ]
+check $? "every screenshot listed in pak.json exists${missing_shots:+ -- MISSING:$missing_shots}"
+
+# ------------------------------------------------------------ runtime / ELF
+group "LOVE runtime"
+
+if command -v readelf >/dev/null; then
+    readelf -h "$PAK/bin/love.aarch64" 2>/dev/null | matches 'AArch64'
+    check $? "bin/love.aarch64 is an AArch64 ELF"
+
+    needed="$(readelf -d "$PAK/bin/love.aarch64" 2>/dev/null \
+              | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p' | sort | tr '\n' ' ')"
+    # If this set grows, the new library must either ship in libs.aarch64/ or be
+    # present in the firmware -- otherwise the device gets a loader failure.
+    [ "$needed" = "ld-linux-aarch64.so.1 libc.so.6 liblove-11.5.so libluajit-5.1.so.2 " ]
+    check $? "love.aarch64 needs only libc + the bundled liblove/libluajit  [$needed]"
+else
+    note "readelf unavailable -- skipped ELF checks"
+fi
+
+[ -x "$PAK/bin/love.aarch64" ]
+check $? "bin/love.aarch64 is executable"
+
+libcount=$(find "$PAK/libs.aarch64" -maxdepth 1 -name '*.so*' | wc -l)
+[ "$libcount" -eq 4 ]
+check $? "libs.aarch64/ holds exactly the 4 expected libraries (found $libcount)"
+
+rt_ok=0
+while IFS=$'\t' read -r rel want; do
+    got=$(sha256sum "$PAK/$rel" 2>/dev/null | cut -d' ' -f1)
+    [ "$got" = "$want" ] || { bad "runtime hash mismatch: $rel"; rt_ok=1; }
+done < <(jq -r '.love_runtime.files | to_entries[] | [.key,.value] | @tsv' "$LOCK")
+check $rt_ok "every runtime file matches its pin in upstream.lock"
+
+# ------------------------------------------------------ payload hygiene
+group "Payload hygiene"
+
+[ -f "$PAK/game/main.lua" ] && [ -f "$PAK/game/conf.lua" ]
+check $? "game/main.lua and game/conf.lua are present"
+
+[ ! -f "$PAK/game/portable.txt" ]
+check $? "game/portable.txt is absent (else a pak update would delete every save)"
+
+[ ! -e "$PAK/game/data/generated" ] && [ ! -e "$PAK/game/assets/generated" ]
+check $? "no ROM-derived generated data in the payload"
+
+# 1 MiB is the exact size of the cartridges this engine accepts, so anything of
+# that size and shape is treated as a possible ROM leak and blocks the build.
+leak=$(find "$PAK" -type f \( -iname '*.gb' -o -iname '*.gbc' \) 2>/dev/null | head -5)
+[ -z "$leak" ]
+check $? "no .gb/.gbc file anywhere in the pak${leak:+ -- FOUND: $leak}"
+
+exact1mib=$(find "$PAK" -type f -size 1048576c 2>/dev/null | head -3)
+[ -z "$exact1mib" ]
+check $? "no 1 MiB file that could be a mis-named ROM${exact1mib:+ -- FOUND: $exact1mib}"
+
+[ -f "$PAK/launch.sh" ] && [ -x "$PAK/launch.sh" ]
+check $? "launch.sh is present and executable"
+
+[ -f "$PAK/LICENSE" ] && [ -f "$PAK/licenses/ATTRIBUTION.txt" ]
+check $? "LICENSE and licences/ATTRIBUTION.txt are shipped"
+
+# ------------------------------------------------------------- contracts
+group "Upstream contracts (assumptions launch.sh hard-codes)"
+
+# The single most likely silent breakage. Our runtime is pinned to LOVE 11.5; if
+# upstream moves to 12 the game may load and then misbehave in ways no static
+# check would notice.
+#
+# Upstream writes this as a conditional -- currently
+#   t.version = love._os == "iOS" and "12.0" or "11.5"
+# -- so match the t.version assignment and require our version to appear in it,
+# rather than expecting a bare literal.
+want_love=$(jqlock '.contracts.love_version')
+grep -E '^[[:space:]]*t\.version[[:space:]]*=' "$PAK/game/conf.lua" | matches "\"$want_love\""
+check $? "conf.lua's t.version still includes LOVE $want_love"
+
+want_ident=$(jqlock '.contracts.love_identity')
+grep -q "$want_ident" "$PAK/game/conf.lua"
+check $? "LOVE identity is still '$want_ident' (our XDG_DATA_HOME layout depends on it)"
+
+want_base=$(jqlock '.contracts.base_roms_dir')
+grep -rq "\"$want_base\"" "$PAK/game/src/import/" 2>/dev/null
+check $? "the ROM import directory is still '$want_base'"
+
+want_gbcfx=$(jqlock '.contracts.gbcfx_env')
+grep -rq "$want_gbcfx" "$PAK/game/src/" 2>/dev/null
+check $? "$want_gbcfx is still honoured by the engine"
+
+sha_ok=0
+for v in red blue yellow; do
+    h=$(jqlock ".contracts.rom_sha1.$v")
+    grep -rqi "$h" "$PAK/game/" 2>/dev/null || { bad "ROM SHA-1 for $v not found upstream ($h)"; sha_ok=1; }
+done
+check $sha_ok "all three canonical ROM SHA-1s still appear in the payload"
+
+# launch.sh and the payload must agree on the hashes, or the scan silently
+# imports nothing.
+ls_ok=0
+for v in red blue yellow; do
+    h=$(jqlock ".contracts.rom_sha1.$v")
+    grep -q "$h" "$ROOT/launch.sh" || { bad "launch.sh is missing the $v SHA-1"; ls_ok=1; }
+done
+check $ls_ok "launch.sh carries the same three SHA-1s as upstream.lock"
+
+# ----------------------------------------------------------- voxel mod
+group "Voxel mod"
+
+if [ -d "$PAK/game/mods/DRAMATIC_SHAPE" ]; then
+    [ -f "$PAK/game/mods/DRAMATIC_SHAPE/main.lua" ]
+    check $? "voxel mod has a main.lua"
+    [ -f "$PAK/game/mods/DRAMATIC_SHAPE/manifest.json" ]
+    check $? "voxel mod has a manifest.json"
+else
+    note "voxel mod not present (built with --no-voxel)"
+fi
+
+# ------------------------------------------------------- launch.sh shape
+group "launch.sh"
+
+head -1 "$ROOT/launch.sh" | grep -q '^#!/bin/sh$'
+check $? "shebang is #!/bin/sh, not bash (PortMaster can hijack /bin/bash on these cards)"
+
+# Cheap bashism screen. CI additionally runs this under dash via test-launch.sh.
+bashisms=$(grep -nE '\[\[|\bfunction [a-zA-Z_]|[a-zA-Z_]+\+=|<<<|\bdeclare\b|\blocal\b|\bsource\b|&>' "$ROOT/launch.sh" || true)
+[ -z "$bashisms" ]
+check $? "no obvious bashisms${bashisms:+ -- $bashisms}"
+
+# These forbid particular *behaviour*, so they must look at code only. launch.sh
+# discusses all three in comments precisely because they are traps, and grepping
+# the whole file flags the documentation instead of the thing being documented.
+code_only() { sed 's/[[:space:]]*#.*$//' "$ROOT/launch.sh" | grep -v '^[[:space:]]*$'; }
+
+code_only | matches 'nextui_exec' && bad "launch.sh touches /tmp/nextui_exec (removing it powers the device off)" || ok "does not touch /tmp/nextui_exec"
+
+code_only | matches 'dd if=/dev/zero|mkswap|swapon' && bad "launch.sh creates swap -- that is Swap.pak's job" || ok "does not create swap (delegated to Swap.pak)"
+
+code_only | matches 'SDL_VIDEODRIVER' && bad "launch.sh sets SDL_VIDEODRIVER -- NextUI never does; let the vendor SDL2 choose" || ok "does not set SDL_VIDEODRIVER"
+
+sh -n "$ROOT/launch.sh" 2>/dev/null
+check $? "launch.sh parses"
+
+# ----------------------------------------------------------------- dist
+if [ -d "$DIST" ]; then
+    group "Release artifacts"
+    store="$DIST/Gen1Recomp.pak.zip"
+    pakz="$DIST/Gen1Recomp.pakz"
+
+    if [ -f "$store" ]; then
+        # The Pak Store expects the pak's contents at the zip root.
+        unzip -Z1 "$store" | matches '^launch\.sh$'
+        check $? "Gen1Recomp.pak.zip has launch.sh at the zip root"
+        unzip -Z1 "$store" | matches '^pak\.json$'
+        check $? "Gen1Recomp.pak.zip has pak.json at the zip root"
+    else
+        note "dist/Gen1Recomp.pak.zip not built"
+    fi
+
+    if [ -f "$pakz" ]; then
+        unzip -Z1 "$pakz" | matches '^Emus/tg5040/Gen1Recomp\.pak/launch\.sh$'
+        check $? ".pakz contains Emus/tg5040/Gen1Recomp.pak/launch.sh"
+        unzip -Z1 "$pakz" | matches '^Emus/tg5050/Gen1Recomp\.pak/launch\.sh$'
+        check $? ".pakz contains Emus/tg5050/Gen1Recomp.pak/launch.sh"
+    else
+        note "dist/Gen1Recomp.pakz not built"
+    fi
+
+    # FAT32/exFAT cards cannot hold symlinks; release.sh dereferences with cp -L.
+    syms=$(find "$DIST" -type l 2>/dev/null | head -3)
+    [ -z "$syms" ]
+    check $? "no symlinks in dist/ (exFAT cannot store them)"
+fi
+
+# ----------------------------------------------------------------- lint
+if [ "$SKIP_LINT" = 0 ]; then
+    group "Lint"
+    if command -v shellcheck >/dev/null; then
+        shellcheck -s sh "$ROOT/launch.sh"
+        check $? "shellcheck (sh) launch.sh"
+        shellcheck -s bash "$ROOT"/scripts/*.sh "$ROOT"/test/*.sh
+        check $? "shellcheck (bash) scripts and tests"
+    else
+        note "shellcheck not installed -- skipped"
+    fi
+
+    if command -v luacheck >/dev/null && [ -f "$PAK/game/.luacheckrc" ]; then
+        ( cd "$PAK/game" && luacheck --quiet . >/dev/null 2>&1 )
+        check $? "luacheck the payload using upstream's .luacheckrc"
+    else
+        note "luacheck unavailable or upstream ships no .luacheckrc -- skipped"
+    fi
+fi
+
+# ---------------------------------------------------------------- summary
+printf '\n\033[1m%d passed, %d failed\033[0m\n' "$PASS" "$FAIL"
+if [ "$FAIL" -gt 0 ]; then
+    printf '\033[1;31mverify failed.\033[0m A contract failure usually means upstream changed\n'
+    printf 'something launch.sh depends on. Investigate before releasing.\n'
+    exit 1
+fi
+printf 'Static checks only -- this says nothing about whether the pak runs.\n'
+printf 'Run scripts/verify-device.sh on hardware before publishing.\n'
