@@ -1,1 +1,16 @@
-{"name":"Gen1Recomp","version":"v0.1.0","type":"EMU","description":"Play Pokemon Red, Blue and Yellow natively on TrimUI handhelds. Bundles Gen1Recomp 0.1.77 and the Dramatic Shape voxel 3D mod. Needs your own US cartridge dump.","author":"Carroarmato0","repo_url":"https://github.com/carroarmato0/NextUI-Gen1Recomp-Pak","release_filename":"Gen1Recomp.pak.zip","screenshots":[],"platforms":["tg5040","tg5050"],"changelog":{"v0.1.0":["Initial release.","Bundles Gen1Recomp 0.1.77 and the LOVE 11.5 aarch64 runtime.","Dramatic Shape voxel 3D mod included, off by default -- see the README for the Swap.pak setup it needs.","Reads your own Red/Blue/Yellow dump once from Roms/Game Boy (GB) or Roms/Game Boy Color (GBC); no ROM is shipped."]}}
+{
+    "name":"Gen1Recomp",
+    "version":"v0.1.0",
+    "type":"EMU",
+    "description":"Play Pokemon Red, Blue and Yellow in 3D natively on TrimUI handhelds using Gen1Recomp and the Dramatic Shape voxel 3D mod. Needs your own US cartridge dump.",
+    "author":"Carroarmato0",
+    "repo_url":"https://github.com/carroarmato0/NextUI-Gen1Recomp-Pak",
+    "release_filename":"Gen1Recomp.pak.zip",
+    "screenshots":[
+        "docs/screenshots/main.png"
+    ],
+    "platforms":["tg5040","tg5050"],
+    "changelog":{
+        "v0.1.0": "Initial release, bundles Gen1Recomp 0.1.77 and the LOVE 11.5 aarch64 runtime."
+    }
+}
