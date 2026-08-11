@@ -80,23 +80,22 @@ It **ships with this pak but is switched off by default.** Enable it from the in
 
 It is off by default for one specific reason: **memory.**
 
-### Memory, and whether you need Swap.pak
+### Memory: it grows, so Swap.pak is worth having
 
-Measured on a TrimUI Brick (1 GB), roughly a minute of overworld play with the mod on:
+Two samples on a Brick (1 GB total), same session, with the voxel mod on:
 
-| | |
-|---|---|
-| LÖVE peak RSS | **183 MB** |
-| Swap used | **none** — zero paging across 28 samples |
-| Memory still free | ~358 MB |
+| | LÖVE RSS | Memory free |
+|---|---|---|
+| Early, ~1 min in | 183 MB | ~358 MB |
+| Later | **386 MB** | **~55–95 MB** |
 
-So on this evidence **the voxel mod does not need swap on a 1 GB Brick.** That contradicts the ~750 MB figure reported by the nx-redux project, which this README previously repeated without having measured it. Their number may come from longer sessions, battles, or areas we did not reach; ours is a short overworld sample. Both can be true.
+Usage roughly doubled as play continued, and free memory fell to under 100 MB. No swap was touched in either sample, but the trend is the point: the headroom is going away, and the nx-redux project reports peaks near 750 MB, which a longer session could plausibly reach.
 
-Practical advice: **try it without swap first.** If you get killed mid-session, install [Swap.pak](https://github.com/carroarmato0/NextUI-Swap-Pak) and create **512 MB on internal storage** (swap-in is ~17.3 MB/s internally vs ~2.8 MB/s from the card, about 6× faster), with its boot hook enabled so it survives a reboot.
+So: install [Swap.pak](https://github.com/carroarmato0/NextUI-Swap-Pak) if you intend to use the voxel mod for more than a few minutes. **512 MB on internal storage** — swap-in is ~17.3 MB/s internally against ~2.8 MB/s from the card, roughly 6× faster — with its boot hook enabled so it survives a reboot.
 
-Two things worth knowing if you do: swap does not survive a NextUI firmware update, and it does not make anything faster — it trades storage speed for capacity, preventing an OOM kill rather than raising your frame rate.
+Two caveats. Swap does not survive a NextUI firmware update. And it does not make anything faster: it trades storage speed for capacity, preventing an OOM kill rather than raising your frame rate — this mod is GPU-bound, not memory-bound, so swap buys you a session that does not die, not a smoother one.
 
-You can check your own numbers with `scripts/profile-device.sh 60`.
+Check your own numbers with `scripts/profile-device.sh 60`.
 
 ### Why the mod's update check fails
 
@@ -108,24 +107,26 @@ Two separate things, worth telling apart:
 
 So: a failed update check on the voxel mod specifically is expected. The mod itself still loads and runs.
 
-### Performance: it is GPU-bound
+### Performance: GPU-bound, and the FPS cap does not help
 
-Measured on a Brick with the mod enabled, sampling only while actually rendering:
+Measured on a Brick, sampling only while rendering:
 
-| | |
-|---|---|
-| GPU utilisation | median **91%**, p75 **96%**, peak **100%** |
-| System CPU | well below saturation |
-| Verdict | **GPU-bound** |
+| Setting | GPU median | GPU p75 | System CPU p75 |
+|---|---|---|---|
+| MAX FPS 60 | 91% | 96% | — |
+| MAX FPS 30 | 92% | 99% | 39% |
 
-The A133's PowerVR GPU is the ceiling, and it has no userspace clock control, so the only lever is drawing less. In rough order of payoff:
+**Capping the frame rate changed nothing.** That is worth understanding rather than retrying: the cap is a sleep budget applied by the run loop, so it only binds when frames are being produced *faster* than the target. With the GPU pinned near 99% at a 30 cap, the device is already rendering below 30 fps and there is nothing for the cap to hold back. `MAX FPS 30` is also the floor of the ladder (`FrameCap.MIN = 30`), so there is no lower setting to reach for.
 
-1. **Cap MAX FPS at 30.** A steady 30 reads far better than a frame rate swinging between 40 and 60. This is usually the single biggest improvement in how it *feels*, even though it lowers the number.
-2. **Lower the voxel mod's quality** in its own OPTIONS rows.
-3. **Cheaper VOID FILL** — the default draws trees in the empty space around the map.
-4. **PERFORMANCE tier.** `AUTO` classifies ARM handhelds as `LOW` already, so this may change nothing; worth confirming rather than assuming.
+An earlier version of this README recommended capping at 30 as the biggest win. Measurement says otherwise; it is not.
 
-Be realistic: this is a 3D renderer on a handheld GPU from a budget SoC. Expect a real cost for the voxel look, and expect the 2D game to run comfortably.
+The CPU is not the constraint either — system CPU peaked at 53% across four cores, with LÖVE itself using about two. The A133's PowerVR GPU is the ceiling and has no userspace clock control, so the only remaining lever is **drawing less**:
+
+- lower the voxel mod's own quality settings in `OPTIONS`
+- cheaper **VOID FILL** (the default draws trees in the empty space around the map)
+- explicitly set **PERFORMANCE**, rather than leaving it on `AUTO`
+
+Be realistic about the ceiling: this is a 3D renderer running on a budget handheld GPU. The 2D game runs comfortably; the voxel look costs a lot, and on a Brick it does not reach 30 fps. Measure your own with `scripts/profile-device.sh 60`.
 
 ## Controls
 
@@ -189,7 +190,7 @@ Honest status. An untested device is listed as untested, not assumed to work.
 
 | Device | Platform | Screen | Status |
 |---|---|---|---|
-| TrimUI Brick | `tg5040` | 1024×768 | **Runs.** GLES 3 context, ROM import, 2D game, voxel mod all verified on hardware. Audio and controller mapping not yet confirmed |
+| TrimUI Brick | `tg5040` | 1024×768 | **Runs.** GLES 3 context, ROM import, 2D game, voxel mod and controller mapping (A confirms) all verified on hardware. Audio not yet confirmed |
 | TrimUI Smart Pro | `tg5040` | 1280×720 | Not tested — same platform as the Brick, so likely fine, but unverified |
 | TrimUI Brick Pro | `tg5040` | 1024×768 | Not tested |
 | TrimUI Smart Pro S | `tg5050` | 1280×720 | Not tested — different SoC (Cortex-A55 + Mali) and untried |
