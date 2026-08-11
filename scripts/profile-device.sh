@@ -40,7 +40,24 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 command -v adb >/dev/null || { echo "adb is required" >&2; exit 2; }
-adb get-state >/dev/null 2>&1 || { echo "no device over adb" >&2; exit 2; }
+
+# With more than one handheld plugged in, a bare `adb shell` fails with an
+# unhelpful error and it is easy to profile the wrong device. Name them.
+DEVS="$(adb devices | awk 'NR>1 && $2=="device"{print $1}')"
+NDEV="$(printf '%s\n' "$DEVS" | grep -c .)"
+if [ "$NDEV" -eq 0 ]; then
+    echo "no device over adb" >&2; exit 2
+elif [ "$NDEV" -gt 1 ] && [ -z "${ANDROID_SERIAL:-}" ]; then
+    echo "$NDEV devices attached; set ANDROID_SERIAL to pick one:" >&2
+    for d in $DEVS; do
+        m="$(adb -s "$d" shell 'strings /usr/trimui/bin/MainUI 2>/dev/null | grep -m1 "^Trimui"' 2>/dev/null | tr -d '\r')"
+        printf '  ANDROID_SERIAL=%s %s   # %s\n' "$d" "$0" "${m:-unknown}" >&2
+    done
+    exit 2
+fi
+adb get-state >/dev/null 2>&1 || { echo "device not ready" >&2; exit 2; }
+
+MODEL="$(adb shell 'strings /usr/trimui/bin/MainUI 2>/dev/null | grep -m1 "^Trimui"' 2>/dev/null | tr -d '\r')"
 
 NCPU="$(adb shell 'grep -c ^processor /proc/cpuinfo' 2>/dev/null | tr -d '\r')"
 NCPU="${NCPU:-4}"
@@ -48,7 +65,8 @@ CEIL="$(adb shell 'cat /sys/devices/system/cpu/cpufreq/policy0/cpuinfo_max_freq'
 CEIL="${CEIL:-0}"
 
 printf '\033[1mSampling for %ss. Play the game now — move around the overworld.\033[0m\n' "$DURATION"
-printf 'Cores: %s, CPU ceiling: %s MHz\n\n' "$NCPU" "$((CEIL / 1000))"
+printf 'Device: %s   cores %s   policy0 ceiling %s MHz\n\n' \
+    "${MODEL:-unknown}" "$NCPU" "$((CEIL / 1000))"
 
 printf '%-9s %-5s %-7s %-8s %-8s %-8s %-8s %s\n' \
     TIME GPU% SYSCPU LOVECPU CPU-MHz RSS-MB AVAIL-MB SWAPPING
@@ -56,13 +74,21 @@ printf '%.0s-' $(seq 1 74); printf '\n'
 
 TOT0=0; IDLE0=0; PJ0=0; SWIN0=0; SWOUT0=0
 gpu_max=0; rss_max=0; syscpu_max=0; lovecpu_max=0
-swap_events=0; n=0; busy_n=0
+swap_events=0; n=0; busy_n=0; gpu_zero=0
 elapsed=0
 
 while [ "$elapsed" -lt "$DURATION" ]; do
     sample="$(adb shell '
 P=$(pidof love.aarch64)
+# GPU utilisation comes from a different node per SoC:
+#   tg5040 (A133, PowerVR GE8300) -> /sys/kernel/debug/pvr/status
+#   tg5050 (sun55iw3, Mali-G57)   -> sunxi_gpu_freq, "Utilisation from last show"
+# Without the second one the Smart Pro S silently reports 0% and every verdict is
+# wrong, so try both rather than assuming PowerVR.
 GPU=$(sed -n "s/^GPU Utilisation:[[:space:]]*\([0-9]*\)%.*/\1/p" /sys/kernel/debug/pvr/status 2>/dev/null | head -1)
+if [ -z "$GPU" ]; then
+  GPU=$(sed -n "s/.*Utilisation from last show:[[:space:]]*\([0-9]*\)%.*/\1/p" /sys/class/misc/mali0/device/sunxi_gpu/sunxi_gpu_freq 2>/dev/null | head -1)
+fi
 CPU=$(cat /sys/devices/system/cpu/cpufreq/policy0/scaling_cur_freq 2>/dev/null)
 RSS=0; SWP=0; PJ=0
 if [ -n "$P" ]; then
@@ -120,6 +146,11 @@ echo "${GPU:-0} ${CPU:-0} ${RSS:-0} ${SWP:-0} ${AVAIL:-0} ${IN:-0} ${OUT:-0} ${1
         busy_n=$((busy_n + 1))
         echo "$gpu" >> "$TMP/gpu_busy"
         echo "$syscpu" >> "$TMP/sys_busy"
+        # The GPU counter is a different sysfs node per SoC and may simply not be
+        # readable on an untested device. If the game is clearly working and the
+        # counter still says zero, that is a broken reading, not an idle GPU --
+        # say so instead of concluding "nothing is saturated".
+        [ "$gpu" -eq 0 ] && [ "$lovecpu" -ge 50 ] && gpu_zero=$((gpu_zero + 1))
     fi
 
     printf '%-9s %-5s %-7s %-8s %-8s %-8s %-8s %s\n' \
@@ -151,7 +182,12 @@ printf '  love peak RSS     %s MB\n' "$((rss_max / 1024))"
 printf '  swap activity     %s of %s samples\n' "$swap_events" "$n"
 
 printf '\n\033[1mVerdict\033[0m\n'
-if [ "$busy_n" -lt 3 ]; then
+if [ "$busy_n" -ge 3 ] && [ "$gpu_zero" -ge $((busy_n * 3 / 4)) ]; then
+    echo "  GPU COUNTER UNREADABLE on this device: it reported 0% in $gpu_zero of"
+    echo "  $busy_n busy samples while the game was demonstrably working. Treat the"
+    echo "  GPU column as missing, not as idle. CPU and memory figures above are"
+    echo "  still valid. Find this SoC's utilisation node and add it to the sampler."
+elif [ "$busy_n" -lt 3 ]; then
     echo "  Not enough busy samples. Run again and play during the whole window."
 elif [ "$swap_events" -gt $((n / 4)) ]; then
     echo "  SWAP THRASHING. The stalls are disk waits, not rendering, and no graphics"
