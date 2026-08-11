@@ -75,9 +75,34 @@ else
 fi
 
 # --- cleanup ---------------------------------------------------------------
+# CPU state is restored here, not left to the frontend. Measured on a Brick: after
+# the game exits, the governor was still schedutil with the ceiling we raised --
+# NextUI does not put it back, so without this the pak silently changes how the
+# device behaves for everything the player does afterwards.
+CPU_SAVED=""
+save_cpu_state() {
+    for pol in /sys/devices/system/cpu/cpufreq/policy*; do
+        [ -d "$pol" ] || continue
+        CPU_SAVED="$CPU_SAVED$pol	$(cat "$pol/scaling_governor" 2>/dev/null)	$(cat "$pol/scaling_max_freq" 2>/dev/null)	$(cat "$pol/scaling_min_freq" 2>/dev/null)
+"
+    done
+}
+restore_cpu_state() {
+    [ -n "$CPU_SAVED" ] || return 0
+    printf '%s' "$CPU_SAVED" | while IFS="$(printf '\t')" read -r pol gov mx mn; do
+        [ -d "$pol" ] || continue
+        # Floor before ceiling on the way back down, mirroring the order used when
+        # raising them: a min above the incoming max is rejected by the driver.
+        [ -n "$mn" ] && echo "$mn" > "$pol/scaling_min_freq" 2>/dev/null
+        [ -n "$mx" ] && echo "$mx" > "$pol/scaling_max_freq" 2>/dev/null
+        [ -n "$gov" ] && echo "$gov" > "$pol/scaling_governor" 2>/dev/null
+    done
+}
+
 cleanup() {
     echo 0 > /sys/class/speaker/mute 2>/dev/null
     rm -f "$HOME/.asoundrc" 2>/dev/null
+    restore_cpu_state
 }
 trap cleanup EXIT INT TERM HUP QUIT
 
@@ -145,6 +170,7 @@ TASKSET=""
 if [ -f "$STATE/no-cpu-tuning" ]; then
     echo "cpu       tuning skipped (no-cpu-tuning present)"
 else
+    save_cpu_state
     for online in /sys/devices/system/cpu/cpu[0-9]*/online; do
         [ -w "$online" ] && echo 1 > "$online" 2>/dev/null
     done
