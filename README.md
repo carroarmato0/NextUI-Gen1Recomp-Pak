@@ -117,6 +117,8 @@ Automatic, no action needed: all CPU cores brought online, cluster frequency cei
 
 That is the more useful finding: memory scales with the maps in the mod's live set (current map, its connected neighbours, and the previous set), so a long trek costs far more than any graphics option saves. If you are paging, quitting and relaunching reclaims more than VOID FILL does.
 
+There is no in-game FPS counter to compare against: it was requested twice upstream ([#963](https://github.com/bryanthaboi/gen1recomp/issues/963), folded into [#225](https://github.com/bryanthaboi/gen1recomp/issues/225)) and closed `not_planned`. That is why `scripts/profile-device.sh` measures GPU utilisation, CPU and memory rather than frame rate — those are the only signals the device actually exposes.
+
 Every figure here is one or two runs on one or two devices. Treat the directions as real and the exact numbers as indicative, and measure your own with `scripts/profile-device.sh 60`.
 
 **The pak does not write any of these for you.** It could — the engine merges a partial `options.lua` over its defaults, so seeding on first run would be safe. It does not, because nothing we measured justifies it: the two settings that would have been invisible technical wins do nothing, and the one with any effect is a visible change with an unreliable payoff.
