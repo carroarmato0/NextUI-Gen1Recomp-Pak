@@ -102,18 +102,24 @@ Once it starts paging, the stalls are disk waits and no graphics setting will to
 
 ### Recommended settings
 
-Everything worth doing at the system level — bringing all CPU cores online, raising the frequency ceilings, pinning to the big cluster on big.LITTLE hardware — the pak already does automatically. These are the in-game settings that measurement supports.
+Short version: **install Swap.pak, and leave the in-game settings alone.** Everything that measurably helps, the pak already does for you.
 
 | Setting | Recommendation | Why |
 |---|---|---|
-| **Swap.pak** | **Required** for the voxel mod. 512 MB, internal storage, boot hook on | RSS reaches ~722 MB on a 962 MB device. Without swap the session is OOM-killed |
-| **VOID FILL** | **BLACK** when using the voxel mod | Measured on a Brick: peak RSS 386 MB → 253 MB, and it stays flat. Void fill draws trees as real geometry that the chunk mesher has to build and keep |
-| **MAX FPS** | Leave at 60 | Measured: 30 vs 60 made no difference. The cap only binds when frames are produced faster than the target, and neither device reaches 30 with the mod on |
-| **PERFORMANCE** | Leave at **AUTO** | `AUTO` already resolves to `LOW` on ARM Linux. Setting it explicitly changes nothing |
+| **Swap.pak** | **Required** for the voxel mod. 512 MB, internal storage, boot hook on | RSS reaches ~700 MB on a 962 MB device and pages regardless of any setting we found. Without swap the session is OOM-killed |
+| **MAX FPS** | Leave at 60 | 30 vs 60 measured identical. The cap only binds when frames are produced *faster* than the target, and neither device reaches 30 with the mod on |
+| **PERFORMANCE** | Leave at **AUTO** | Already resolves to `LOW` on ARM Linux. Setting it explicitly changes nothing |
+| **VOID FILL** | Try **BLACK** only if you are paging | Inconsistent: ~133 MB saved on a Brick, only ~28 MB on a Smart Pro S, which kept paging anyway. See below |
 
-VOID FILL is a visible change — the area beyond the map edge becomes black instead of forest — so it is a trade, not a free win. It does not improve frame rate: the Brick stays GPU-bound at 99% either way. It buys memory headroom, which is what keeps a voxel session from paging.
+Automatic, no action needed: all CPU cores brought online, cluster frequency ceilings raised, and on big.LITTLE hardware every LÖVE thread pinned to the big cluster — worth about 16 points of GPU utilisation on the Smart Pro S.
 
-**The pak does not write these for you.** It could — the engine merges a partial `options.lua` over its defaults, so seeding on first run would be safe. It deliberately does not, because VOID FILL changes how the game looks, and the settings that would be purely technical wins turned out to be no-ops. Anything the pak can improve without changing your game, it already does.
+**On VOID FILL, and a measurement caveat worth stating.** The Brick showed peak RSS falling from 386 MB to 253 MB with BLACK, which looked like a solid win. It did not replicate on the Smart Pro S: 722 MB to 694 MB, still paging. The likely explanation is that the two Brick runs were not comparable — one began mid-session at 385 MB, the other from a fresh launch at 233 MB — and what I was really measuring was **how many maps had been visited**, not the void fill.
+
+That is the more useful finding: memory scales with the maps in the mod's live set (current map, its connected neighbours, and the previous set), so a long trek costs far more than any graphics option saves. If you are paging, quitting and relaunching reclaims more than VOID FILL does.
+
+Every figure here is one or two runs on one or two devices. Treat the directions as real and the exact numbers as indicative, and measure your own with `scripts/profile-device.sh 60`.
+
+**The pak does not write any of these for you.** It could — the engine merges a partial `options.lua` over its defaults, so seeding on first run would be safe. It does not, because nothing we measured justifies it: the two settings that would have been invisible technical wins do nothing, and the one with any effect is a visible change with an unreliable payoff.
 
 ### Why the mod's update check fails
 
@@ -151,7 +157,7 @@ NextUI leaves only three cores online and the scheduler parked LÖVE's main thre
 
 On both devices the CPU as a whole is nowhere near saturated — 19–39% across all cores. Single-thread speed and thread placement matter; total CPU capacity does not.
 
-Remaining levers, in order: **make sure swap exists** (on the Smart Pro S it is the binding constraint), then **VOID FILL = BLACK** — measured at ~130 MB less memory, though it does not move the frame rate. The mod's mesh ring is a hardcoded constant, so draw distance is not adjustable. See [Recommended settings](#recommended-settings).
+The one lever that matters is **swap** — on the Smart Pro S memory is the binding constraint, not the GPU. VOID FILL = BLACK helps inconsistently and does not move the frame rate; the mod's mesh ring is a hardcoded constant, so draw distance is not adjustable. See [Recommended settings](#recommended-settings).
 
 Be realistic: this is a 3D renderer on budget handheld silicon. The 2D game runs comfortably on both.
 
