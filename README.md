@@ -4,7 +4,7 @@
 
 This is a [NextUI](https://github.com/LoveRetro/NextUI) pak that packages [Gen1Recomp](https://github.com/bryanthaboi/gen1recomp), a from-scratch recreation of the Generation 1 Pokémon games written in Lua on the LÖVE engine. It runs as native ARM64 code at your handheld's own resolution and frame rate, rather than emulating a Game Boy.
 
-> **Status: not yet verified on hardware.** Everything here builds and passes static and contract checks, but no part of it has been run on a device yet. See [Tested on](#tested-on). If you are reading this before the first verified release, treat it as untested.
+> **Status: verified on a TrimUI Brick and a Smart Pro S.** The runtime, ROM import, 2D game, voxel mod, controller mapping and audio have all been exercised on real hardware. The Smart Pro and Brick Pro are untested — see [Tested on](#tested-on).
 
 ## What this is, and what it is not
 
@@ -202,10 +202,10 @@ Honest status. An untested device is listed as untested, not assumed to work.
 
 | Device | Platform | Screen | Status |
 |---|---|---|---|
-| TrimUI Brick | `tg5040` | 1024×768 | **Runs.** GLES 3 context, ROM import, 2D game, voxel mod and controller mapping (A confirms) all verified on hardware. Audio not yet confirmed |
+| TrimUI Brick | `tg5040` | 1024×768 | **Runs.** GLES 3 context, ROM import, 2D game, voxel mod and controller mapping (A confirms) and audio all verified on hardware |
 | TrimUI Smart Pro | `tg5040` | 1280×720 | Not tested — same platform as the Brick, so likely fine, but unverified |
 | TrimUI Brick Pro | `tg5040` | 1024×768 | Not tested |
-| TrimUI Smart Pro S | `tg5050` | 1280×720 | **Runs.** Profiled with the voxel mod; needs swap. Audio not yet confirmed |
+| TrimUI Smart Pro S | `tg5050` | 1280×720 | **Runs.** Profiled with the voxel mod; needs swap. Audio verified |
 
 The runtime itself is known to work on this hardware class — the LÖVE 11.5 ARM64 build here is the same one shipped by [PortMaster](https://portmaster.games/), and [nx-redux](https://github.com/mohammadsyuhada/nx-redux) runs Gen1Recomp with the voxel mod on both platforms. What is untested is *this pak*.
 

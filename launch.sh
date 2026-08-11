@@ -161,15 +161,17 @@ fi
 export LOVE_GRAPHICS_USE_OPENGLES="${LOVE_GRAPHICS_USE_OPENGLES:-1}"
 
 # --- CPU ----------------------------------------------------------------------
-# PROVISIONAL. On the nx-redux fork, the frontend leaves clocks capped low and
-# cores hotplugged out at idle; at that clock LOVE starves its 48 kHz OpenAL
-# mixer thread into XRUN underruns, which is audible as distortion. Raising every
-# cluster's frequency ceiling and bringing all cores online fixes it.
+# This block was inherited from nx-redux as an AUDIO fix: on that fork, clocks
+# capped low and cores hotplugged out at idle starved LOVE's 48 kHz OpenAL mixer
+# thread into XRUN underruns. That justification is UNVERIFIED here -- audio is
+# clean on both a Brick and a Smart Pro S with the block active, but it was never
+# A/B'd against the block disabled, so we do not know whether it is doing that job.
 #
-# Stock NextUI already selects the 'performance' governor before running a pak,
-# so this may be redundant here. Create the no-cpu-tuning file to skip the block
-# and A/B the audio; if it is clean either way on stock NextUI, DELETE this
-# section rather than carrying tuning nobody can justify.
+# It earns its place on different, measured grounds: NextUI leaves 5 of the Smart
+# Pro S's 8 cores offline, and bringing them all online -- together with the cpuset
+# below -- lifted GPU utilisation from a 67% median to 83%, i.e. more frames.
+#
+# Create no-cpu-tuning in the state dir to skip it.
 #
 # The governor is left on schedutil rather than pinned to performance: the clock
 # still scales with load, which is cooler and easier on the battery, while still
