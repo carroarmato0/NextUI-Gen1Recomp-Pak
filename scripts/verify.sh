@@ -169,9 +169,25 @@ want_ident=$(jqlock '.contracts.love_identity')
 grep -q "$want_ident" "$PAK/game/conf.lua"
 check $? "LOVE identity is still '$want_ident' (our XDG_DATA_HOME layout depends on it)"
 
-want_base=$(jqlock '.contracts.base_roms_dir')
-grep -rq "\"$want_base\"" "$PAK/game/src/import/" 2>/dev/null
-check $? "the ROM import directory is still '$want_base'"
+# How the engine discovers a dump on Linux. Getting this wrong is invisible
+# off-device: the pak stages a ROM somewhere the engine never reads, and the game
+# just says "no ROM" with no error. It cost a device trip once already.
+IMP="$PAK/game/src/import/RomImporter.lua"
+grep -q 'getDirectoryItems("")' "$IMP" 2>/dev/null
+check $? "the engine still scans the PhysFS root for a pending ROM"
+
+grep -q 'findPendingRom' "$IMP" 2>/dev/null
+check $? "findPendingRom still exists (the Linux fallback launch.sh relies on)"
+
+# If upstream ever ungates this, baseroms/ becomes viable and this note should be
+# revisited -- but until then, staging there is a silent no-op on Linux.
+grep -qE 'baseRomDiscovery[[:space:]]*=.*isUWP' "$IMP" 2>/dev/null
+check $? "baseroms/ discovery is still Xbox-only (so we must stage at the save root)"
+
+code_only | matches 'SAVEROOT'
+check $? "launch.sh stages ROMs at the save-dir root, not in a subfolder"
+
+code_only | matches 'baseroms' && bad "launch.sh still references baseroms/, which Linux never reads" || ok "launch.sh does not use the Xbox-only baseroms/ path"
 
 want_gbcfx=$(jqlock '.contracts.gbcfx_env')
 grep -rq "$want_gbcfx" "$PAK/game/src/" 2>/dev/null

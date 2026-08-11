@@ -13,7 +13,6 @@
     "The hashes below are therefore assertions about the zip's contents, not fetch targets --",
     "if upstream ever ships a different LOVE build, build.sh fails and a human decides."
   ],
-
   "gen1recomp": {
     "repo": "bryanthaboi/gen1recomp",
     "tag": "v0.1.77",
@@ -22,7 +21,6 @@
     "sha256": "01de7975e186cd495d88b54fd0a69bc767812be505526b66a9d4982cd924e697",
     "size": 5110563
   },
-
   "love_runtime": {
     "version": "11.5",
     "origin": "PortsMaster/PortMaster-GUI PortMaster/runtimes/love_11.5 (aarch64)",
@@ -35,7 +33,6 @@
       "libs.aarch64/libogg.so.0": "66015f344b53895affd3ff153f402097ebaa2add33246bea2d7fca27b682e07a"
     }
   },
-
   "voxel_mod": {
     "_comment": [
       "The mod's own repo, DramaticShape/DramaticShapeVoxelMod, returns 404 -- it is gone.",
@@ -50,7 +47,6 @@
     "size": 8157766,
     "install_path": "game/mods/DRAMATIC_SHAPE"
   },
-
   "contracts": {
     "_comment": [
       "Assumptions launch.sh hard-codes. verify.sh asserts each against the staged payload so",
@@ -58,7 +54,6 @@
     ],
     "love_version": "11.5",
     "love_identity": "pokemon-love2d",
-    "base_roms_dir": "baseroms",
     "gbcfx_env": "POKEPORT_GBCFX",
     "_rom_sha1_comment": [
       "The identifiers upstream publishes, and what the engine itself verifies at",
@@ -70,7 +65,6 @@
       "blue": "d7037c83e1ae5b39bde3c30787637ba1d4c48ce2",
       "yellow": "cc7d03262ebfaf2f06772c1a480c7d9d5f4a38e1"
     },
-
     "_rom_sha256_comment": [
       "What launch.sh actually matches on. These devices ship sha256sum and md5sum",
       "but NO sha1sum (verified on a Trimui Brick, 2026-08-11), so the original",
@@ -84,13 +78,34 @@
       "blue": "2a951313c2640e8c2cb21f25d1db019ae6245d9c7121f754fa61afd7bee6452d",
       "yellow": "8cbaa499397e4f1a679c992ea9382a2dd7942ab398b48c19829c2d9529de47bf"
     },
-
     "_device_tools_comment": [
       "Commands confirmed ABSENT on a Trimui Brick running NextUI (2026-08-11).",
       "launch.sh must not invoke any of these unless guarded by `command -v`,",
       "because the failure mode is silent: sha1sum produced no output and the ROM",
       "scan matched nothing, with no error logged anywhere. verify.sh enforces it."
     ],
-    "device_missing_tools": ["sha1sum", "stat", "openssl", "cksum", "nproc"]
+    "device_missing_tools": [
+      "sha1sum",
+      "stat",
+      "openssl",
+      "cksum",
+      "nproc"
+    ],
+    "_rom_discovery_comment": [
+      "How the engine finds a dump on Linux, and therefore where launch.sh stages one.",
+      "RomImporter.lua gates its baseroms/ scan behind baseRomDiscovery, which is set to",
+      "`opts.launcher and Platform.isUWP()` -- Xbox only. On Linux it tries zenity/kdialog",
+      "(absent on these handhelds) and then falls back to findPendingRom(), which scans the",
+      "PhysFS root via getDirectoryItems(\"\") for a 1 MiB .gb/.gbc. LOVE mounts the save",
+      "directory into that root, so launch.sh stages dumps at the top of the save dir.",
+      "Staging them in a subfolder is invisible to the engine -- that cost a device trip.",
+      "verify.sh asserts both facts so an upstream change to either is caught here."
+    ],
+    "rom_discovery": {
+      "root_scan_fn": "findPendingRom",
+      "root_scan_call": "getDirectoryItems(\"\")",
+      "baseroms_is_uwp_only": true,
+      "stage_at": "<savedir>/  (PhysFS root)"
+    }
   }
 }

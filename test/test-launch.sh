@@ -134,16 +134,16 @@ printf 'junk' > "$SB/SDCARD/Roms/Game Boy (GB)/._Pokemon Red (USA).gb"
 run_launch "$SB" ""
 log_of "$SB" | grep -q "matched Red"
 check $? "identifies the version by SHA-256 through a path with spaces and parens"
-log_of "$SB" | grep -q "imported 1 dump"
+log_of "$SB" | grep -q "staged 1 dump"
 check $? "reports how many dumps were imported"
-[ -f "$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d/baseroms/Pokemon Red (USA).gb" ]
-check $? "copies the dump into the engine's import folder"
+[ -f "$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d/Pokemon Red (USA).gb" ]
+check $? "stages the dump at the save-dir root, where findPendingRom looks"
 [ -f "$FIXTURE" ] && [ "$(sha256sum "$FIXTURE" | cut -d' ' -f1)" = "$FIX_SHA" ]
 check $? "leaves the user's own file untouched"
 # The decoy sorts ahead of the real dump, so a naive scan would copy it. Assert
 # on the import folder's actual contents rather than on log text, which would
 # pass for the wrong reason.
-BR="$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d/baseroms"
+BR="$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d"
 [ -z "$(find "$BR" -name '._*' 2>/dev/null)" ] && [ "$(find "$BR" -type f | wc -l)" -eq 1 ]
 check $? "skips the AppleDouble decoy and imports exactly one file"
 
@@ -193,10 +193,10 @@ R_SHA="$(sha256sum "$GB/Pokemon - Red Version.gb" | cut -d' ' -f1)"
 sed -i "s/2a951313c2640e8c2cb21f25d1db019ae6245d9c7121f754fa61afd7bee6452d/$B_SHA/" "$SB/pak/launch.sh"
 sed -i "s/5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b/$R_SHA/" "$SB/pak/launch.sh"
 run_launch "$SB" ""
-BR="$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d/baseroms"
+BR="$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d"
 [ "$(find "$BR" -type f | wc -l)" -eq 2 ]
 check $? "both dumps imported (Blue sorts first but must not hide Red)"
-log_of "$SB" | grep -q "imported 2 dump"
+log_of "$SB" | grep -q "staged 2 dump"
 check $? "reports both imports"
 rm -rf "$SB"
 

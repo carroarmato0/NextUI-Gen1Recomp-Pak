@@ -220,15 +220,27 @@ export POKEPORT_GBCFX="${POKEPORT_GBCFX:-0}"
 # The scan is only a convenience pre-filter: the engine still performs its own
 # authoritative SHA-1 check at import time. So even a wrong constant here fails
 # safe -- the player lands on Choose ROM rather than importing wrong data.
-BASEROMS="$STATE/love/pokemon-love2d/baseroms"
-GENERATED="$STATE/love/pokemon-love2d/data/generated"
+# Where the engine actually looks on Linux.
+#
+# NOT baseroms/ -- that scan is gated behind `baseRomDiscovery`, which
+# RomImporter.lua sets to `opts.launcher and Platform.isUWP()`, i.e. Xbox only.
+# On Linux the engine tries zenity/kdialog (absent here), then falls back to
+# findPendingRom(), which scans the PhysFS root for a 1 MiB .gb/.gbc. LOVE mounts
+# the save directory into that root, so a dump dropped at the top of the save dir
+# is found; anything in a subfolder is invisible.
+SAVEROOT="$STATE/love/pokemon-love2d"
+GENERATED="$SAVEROOT/data/generated"
 ROM_SHA256_RED=5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b
 ROM_SHA256_BLUE=2a951313c2640e8c2cb21f25d1db019ae6245d9c7121f754fa61afd7bee6452d
 ROM_SHA256_YELLOW=8cbaa499397e4f1a679c992ea9382a2dd7942ab398b48c19829c2d9529de47bf
 
 rom_already_present() {
+    # Decoded cache exists: nothing more to do, ever.
     [ -d "$GENERATED" ] && return 0
-    for f in "$BASEROMS"/*.gb "$BASEROMS"/*.gbc; do
+    # A dump is already staged where the engine looks. Leaving it there is
+    # deliberate: findPendingRom() skips versions already imported, so it is inert
+    # afterwards, and it lets the engine re-import if the cache is ever cleared.
+    for f in "$SAVEROOT"/*.gb "$SAVEROOT"/*.gbc; do
         [ -f "$f" ] && return 0
     done
     return 1
@@ -265,8 +277,8 @@ else
                 *) continue ;;
             esac
             echo "rom       matched $version: $rom"
-            mkdir -p "$BASEROMS"
-            if cp -f "$rom" "$BASEROMS/$(basename "$rom")"; then
+            mkdir -p "$SAVEROOT"
+            if cp -f "$rom" "$SAVEROOT/$(basename "$rom")"; then
                 imported=$((imported + 1))
             else
                 echo "rom       WARNING: could not copy $version into the import folder"
@@ -275,7 +287,8 @@ else
     done
 
     if [ "$imported" -gt 0 ]; then
-        echo "rom       imported $imported dump(s); the game decodes them on boot"
+        echo "rom       staged $imported dump(s) in $SAVEROOT"
+        echo "rom       the engine decodes them on boot / via Choose ROM"
     else
         # Not an error. The game's own launcher has a Choose ROM screen with
         # on-screen instructions, which is a far better failure mode than exiting
