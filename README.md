@@ -51,14 +51,17 @@ That is the whole install. There is no ROM folder to create and no stub file to 
 
 v0.1.0 was an Emu pak. That needed a `Roms/Gen1Recomp (Gen1Recomp)/` folder containing a 0-byte `Gen1Recomp.g1r` file before NextUI would show anything at all, and anyone whose card did not end up with both saw no entry under Games. It is a Tool pak now, so there is nothing to create.
 
-An update installs the new copy but cannot remove the old one, so **delete these by hand** or you will keep a second, stale Gen1Recomp under Games:
+**The first launch cleans up after itself.** `Roms/Gen1Recomp (Gen1Recomp)/` is deleted, because everything in it came from this project — the 0-byte stub, and a `.media/README.txt` explaining where box art goes — and leaving it behind means a second Gen1Recomp under Games that runs the old copy. If you put your own box art in that folder, it goes too; the log names the folder before removing it.
+
+One thing is left for you:
 
 ```
-/mnt/SDCARD/Emus/<platform>/Gen1Recomp.pak/
-/mnt/SDCARD/Roms/Gen1Recomp (Gen1Recomp)/
+/mnt/SDCARD/Emus/<platform>/Gen1Recomp.pak/     # ~31 MB, no longer read by anything
 ```
 
-**Your saves are not affected.** They have always lived in `.userdata/shared/Gen1Recomp/`, which neither folder touches. The pak logs a `legacy` line naming whatever it finds, and deletes nothing itself — that folder is yours and may hold box art you made.
+Deleting the ROM folder already removes the stale entry, so this is only disk space — and removing a whole installed pak on your behalf is a bigger assumption than this pak should make. The log names the path.
+
+**Your saves are not affected.** They have always lived in `.userdata/shared/Gen1Recomp/`, which none of this touches.
 
 ## First run: your ROM
 
@@ -227,7 +230,7 @@ Stated plainly, because these are structural rather than bugs, and knowing them 
 
 - **Only canonical US Red, Blue and Yellow are accepted.** Other regions, revisions and ROM hacks are refused by the engine, not by this pak.
 - **Two of four devices are untested.** The Smart Pro and Brick Pro share a platform with the Brick and are likely fine, but nobody has run them. See [Tested on](#tested-on).
-- **Updating from v0.1.0 leaves the old Emu pak behind.** Nothing can remove it for you; see [Upgrading from v0.1.0](#upgrading-from-v010). Saves are unaffected.
+- **Updating from v0.1.0 deletes `Roms/Gen1Recomp (Gen1Recomp)/`, box art included.** That folder was entirely this project's doing and leaves a stale duplicate entry otherwise. The old pak under `Emus/` is left for you to remove. See [Upgrading from v0.1.0](#upgrading-from-v010).
 - **A `.love` file dropped in the state directory will run instead of the game**, but that is a diagnostics hook for the smoke test, not a feature. There is no per-game save isolation or controller profile behind it; this pak is Gen1Recomp-specific. Delete it to get the game back.
 - **The bundled CA certificate bundle is pinned and will age.** Roots expire, and a stale bundle fails exactly as silently as having none. Refresh with `scripts/build.sh --refresh-ca`.
 - **Upstream has an AI-generated-code controversy attached.** It changes nothing technically and this pak takes no position; it is mentioned so the decision is yours rather than a surprise.
@@ -249,7 +252,7 @@ adb shell cat /mnt/SDCARD/.userdata/tg5050/logs/Gen1Recomp.txt
 | Symptom | Look for |
 |---|---|
 | Nothing happens when launched | `FATAL` in the log — usually an incomplete install |
-| Two Gen1Recomp entries, one under Games | A leftover v0.1.0 install. The log's `legacy` lines name it |
+| Two Gen1Recomp entries, one under Games | A leftover v0.1.0 install. The `legacy` lines say what was removed and what is left |
 | Game asks for a ROM you already have | `rom` lines: the scan reports every folder it searched, and says so explicitly when it found no Game Boy folder at all |
 | Audio crackles or distorts | `XRUN`. Try removing `no-cpu-tuning` from the state dir if you created it |
 | Killed during a voxel session | `SwapTotal` in the log. Set up Swap.pak as above |

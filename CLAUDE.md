@@ -128,9 +128,12 @@ the pak directory — a pak update would otherwise destroy them.
   name when there are none — `Game Boy (GB)`, `Nintendo Game Boy (GB)` and `GB` are one system to the
   frontend. `launch.sh` mirrors that rule. It used to hard-code two display names, which found
   nothing on a renamed folder and reported no error.
-- **An update cannot remove the v0.1.0 install.** The Emu pak and its ROM folder stay on the card and
-  keep showing a stale entry under Games. `launch.sh` logs `legacy` lines naming them and deletes
-  nothing — that folder belongs to the user and may hold their box art.
+- **An update cannot remove the v0.1.0 install, so `launch.sh` removes half of it.**
+  `Roms/Gen1Recomp (Gen1Recomp)/` is deleted outright: everything in it came from this project, and
+  leaving it means a stale duplicate entry under Games. User-added box art in `.media/` goes with it
+  — a deliberate maintainer call, taken while the install base is small. The Emu pak under `Emus/`
+  is only reported: deleting the ROM folder already removes the entry, so removing an entire
+  installed pak would buy disk space and nothing else. Both are logged as `legacy` lines.
 - **The smoke test lives in the state dir, not a ROM folder.** With no launch argument, `launch.sh`
   discovers `$STATE/*.love` and runs it instead of the game. `verify-device.sh` pushes it, prompts,
   and removes it again — a forgotten one hides the game on every later launch.

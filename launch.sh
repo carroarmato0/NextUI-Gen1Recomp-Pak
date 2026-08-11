@@ -284,24 +284,41 @@ fi
 GAME="$PAK_DIR/game"
 
 # --- leftovers from the v0.1.0 Emu layout ----------------------------------
-# An in-place upgrade installs the Tool pak but cannot remove the old one, so the
-# Emu pak stays in Emus/ and its ROM folder keeps showing a Gen1Recomp entry
-# under Games that now runs a stale copy. Say so; do not delete anything --
-# that folder is on the player's card and may hold box art they made.
+# An in-place upgrade installs the Tool pak but cannot remove the old one, so a
+# stale Gen1Recomp entry keeps showing under Games.
+#
+# The ROM folder is removed rather than reported. Everything in it came from this
+# project -- the 0-byte launchable stub and the .media/README.txt telling people
+# where box art goes -- and leaving it behind means a duplicate entry that runs
+# an older copy of the game. Anyone who did add their own art to .media/ loses
+# it; that is a deliberate call by the maintainer, taken while the install base
+# is small enough for the tidier upgrade to be worth more than the edge case.
+#
+# The Emu pak itself is only reported. Deleting the folder above already removes
+# the entry (an Emu pak with no ROM folder shows nothing), so removing a whole
+# installed pak would buy disk space and nothing else -- and it is not ours to
+# assume nobody wants.
 SD="${SDCARD_PATH:-/mnt/SDCARD}"
-legacy=""
+OLD_ROMDIR="$SD/Roms/Gen1Recomp (Gen1Recomp)"
+if [ -d "$OLD_ROMDIR" ]; then
+    echo "legacy    removing the v0.1.0 ROM folder, which a Tool pak does not need:"
+    echo "legacy      $OLD_ROMDIR"
+    if rm -rf "$OLD_ROMDIR" 2>/dev/null; then
+        echo "legacy    removed. Saves are untouched -- they live in $STATE."
+    else
+        echo "legacy    WARNING: could not remove it. Delete it by hand, or Games will"
+        echo "legacy    keep showing a second Gen1Recomp that runs the older copy."
+    fi
+fi
+
 # Every platform directory, not just $PLATFORM: the leftover is whatever the old
 # install put there, which need not match the platform running now.
-for old in "$SD"/Emus/*/Gen1Recomp.pak "$SD/Roms/Gen1Recomp (Gen1Recomp)"; do
-    [ -d "$old" ] && legacy="$legacy$old
-"
+for old in "$SD"/Emus/*/Gen1Recomp.pak; do
+    [ -d "$old" ] || continue
+    echo "legacy    the v0.1.0 Emu pak is still installed and now unused:"
+    echo "legacy      $old"
+    echo "legacy    Delete it to reclaim ~31 MB. Nothing here reads it any more."
 done
-if [ -n "$legacy" ]; then
-    echo "legacy    a v0.1.0 Emu install is still on the card. It is now a duplicate"
-    echo "legacy    entry under Games running an older copy. Delete by hand:"
-    printf '%s' "$legacy" | while read -r old; do echo "legacy      $old"; done
-    echo "legacy    Saves are unaffected -- they live in $STATE."
-fi
 
 # Diagnostic hook, NOT a feature.
 #

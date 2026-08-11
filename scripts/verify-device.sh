@@ -203,11 +203,15 @@ else
         && bad "portable.txt is present in the payload -- saves would be wiped by an update" \
         || ok "no portable.txt in the payload"
 
-    # A v0.1.0 install left behind shows a second, stale Gen1Recomp under Games.
-    # launch.sh only reports it; removing someone's folder is not its business.
-    printf '%s\n' "$GLOG" | matches '^legacy' \
-        && warn "a v0.1.0 Emu install is still on the card -- see the 'legacy' lines in the log" \
-        || ok "no leftover v0.1.0 Emu install"
+    # launch.sh deletes the v0.1.0 ROM folder and reports the old Emu pak. If it
+    # said it removed something, the folder had better actually be gone.
+    if printf '%s\n' "$GLOG" | matches '^legacy'; then
+        adb shell "[ -d '$SD/Roms/Gen1Recomp (Gen1Recomp)' ] && echo left" 2>/dev/null | matches left \
+            && bad "the v0.1.0 ROM folder is still there after launch.sh reported it" \
+            || ok "the v0.1.0 ROM folder was cleaned up (see the 'legacy' lines)"
+    else
+        ok "no v0.1.0 leftovers on this card"
+    fi
 fi
 
 group "Frontend integration"

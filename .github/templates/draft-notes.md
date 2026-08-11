@@ -15,8 +15,9 @@ device checklist issue first.
 | `Gen1Recomp.pak.zip` | Pak Store, or manual install into `Tools/<platform>/Gen1Recomp.pak/` |
 | `Gen1Recomp.pakz` | Unzip at the SD card root — lays out both platforms |
 
-It appears under **Tools**, not Games. Upgrading from v0.1.0 leaves the old Emu
-pak and its `Roms/Gen1Recomp (Gen1Recomp)/` folder behind; delete both by hand.
-Saves live in `.userdata/shared/Gen1Recomp` and are unaffected.
+It appears under **Tools**, not Games. Upgrading from v0.1.0: the first launch
+deletes `Roms/Gen1Recomp (Gen1Recomp)/` and anything in it, including box art
+you added; the old pak under `Emus/` is left for you to remove. Saves live in
+`.userdata/shared/Gen1Recomp` and are unaffected.
 
 You supply your own US Red, Blue or Yellow cartridge dump. No ROM is included.

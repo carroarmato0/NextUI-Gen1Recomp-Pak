@@ -11,7 +11,7 @@
     ],
     "platforms":["tg5040","tg5050"],
     "changelog":{
-        "v0.2.0": "Now a Tool pak: it appears under Tools instead of Games, so no ROM folder or launchable stub file is needed. The automatic ROM import now finds your dump in any folder NextUI treats as Game Boy or Game Boy Color, not just the two default folder names, and says so in the log when it finds no such folder. Upgrading from v0.1.0: delete Emus/<platform>/Gen1Recomp.pak and the Roms/Gen1Recomp (Gen1Recomp) folder by hand. Your saves are untouched -- they live in .userdata/shared/Gen1Recomp.",
+        "v0.2.0": "Now a Tool pak: it appears under Tools instead of Games, so no ROM folder or launchable stub file is needed. The automatic ROM import now finds your dump in any folder NextUI treats as Game Boy or Game Boy Color, not just the two default folder names, and says so in the log when it finds no such folder. Upgrading from v0.1.0: the first launch deletes the now-pointless Roms/Gen1Recomp (Gen1Recomp) folder, including any box art you put in it; delete Emus/<platform>/Gen1Recomp.pak yourself to reclaim ~31 MB. Your saves are untouched -- they live in .userdata/shared/Gen1Recomp.",
         "v0.1.0": "Initial release, bundles Gen1Recomp 0.1.77 and the LOVE 11.5 aarch64 runtime."
     }
 }

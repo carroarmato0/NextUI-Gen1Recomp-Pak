@@ -258,21 +258,28 @@ rm -rf "$SB"
 
 # --------------------------------------------------------------------------
 echo
-echo "leftovers from the v0.1.0 Emu layout are reported, never deleted"
+echo "the v0.1.0 ROM folder is removed; the old Emu pak is only reported"
 SB="$(make_sandbox)"
 mkdir -p "$SB/SDCARD/Emus/tg5050/Gen1Recomp.pak" \
-         "$SB/SDCARD/Roms/Gen1Recomp (Gen1Recomp)"
-printf 'box art' > "$SB/SDCARD/Roms/Gen1Recomp (Gen1Recomp)/keepme"
+         "$SB/SDCARD/Roms/Gen1Recomp (Gen1Recomp)/.media"
+: > "$SB/SDCARD/Roms/Gen1Recomp (Gen1Recomp)/Gen1Recomp.g1r"
+printf 'art' > "$SB/SDCARD/Roms/Gen1Recomp (Gen1Recomp)/.media/Gen1Recomp.png"
 run_launch "$SB"
+[ ! -d "$SB/SDCARD/Roms/Gen1Recomp (Gen1Recomp)" ]
+check $? "removes the ROM folder outright, contents included"
+log_of "$SB" | grep -q "removed. Saves are untouched"
+check $? "says in the log that it removed it"
+[ -d "$SB/SDCARD/Emus/tg5050/Gen1Recomp.pak" ]
+check $? "leaves the old Emu pak in place -- removing a whole pak is not ours to assume"
 log_of "$SB" | grep -q "Emus/tg5050/Gen1Recomp.pak"
-check $? "names the stale Emu pak so it can be removed"
-log_of "$SB" | grep -q "Roms/Gen1Recomp (Gen1Recomp)"
-check $? "names the stale ROM folder"
-[ -d "$SB/SDCARD/Emus/tg5050/Gen1Recomp.pak" ] && [ -f "$SB/SDCARD/Roms/Gen1Recomp (Gen1Recomp)/keepme" ]
-check $? "deletes nothing on the user's card"
+check $? "names the old Emu pak so it can be reclaimed"
+# Deleting the ROM folder must never reach the save directory.
+[ -d "$SB/SDCARD/.userdata/shared/Gen1Recomp" ]
+check $? "saves are untouched"
 rm -rf "$SB"
 
 SB="$(make_sandbox)"
+# A card that never had v0.1.0 must not see any of this.
 run_launch "$SB"
 log_of "$SB" | grep -q "^legacy"
 if [ $? -eq 0 ]; then bad "warned about a legacy install that is not there"
