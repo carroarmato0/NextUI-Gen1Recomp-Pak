@@ -72,6 +72,14 @@ the pak directory — a pak update would otherwise destroy them.
   `contracts.device_missing_tools` is enforced by `verify.sh` — the original SHA-1 scan
   matched nothing and logged no error, so nothing off-device could have caught it. `stat`,
   `taskset`, `openssl`, `cksum` and `nproc` are also absent.
+- **The device has no CA store.** `/etc/ssl/certs`, `/etc/ssl/cert.pem` and `/etc/pki` are all
+  absent, and the engine does HTTPS by shelling out to `curl` (`src/net/Fetch.lua`). Without a
+  bundle every request fails with curl exit 60, surfacing in the mod manager as a failed update
+  check with no mention of certificates. The pak ships `assets/ca-certificates.crt` and exports
+  `CURL_CA_BUNDLE` + `SSL_CERT_FILE`. The bundle is pinned; refresh with
+  `scripts/build.sh --refresh-ca`, since roots expire and a stale bundle fails the same silent way.
+- **The voxel mod's update check fails regardless** — `DramaticShape/DramaticShapeVoxelMod` is 404.
+  Unrelated to TLS, and does not stop the mod working.
 - **The controller GUID in `launch.sh` is unverified** until someone runs `test/smoke.love` on real
   hardware. It prints every joystick's name and GUID for exactly this reason.
 - **The CPU-tuning block in `launch.sh` may be unnecessary** on stock NextUI, which already sets the

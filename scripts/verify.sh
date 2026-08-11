@@ -150,6 +150,21 @@ check $? "launch.sh is present and executable"
 [ -f "$PAK/LICENSE" ] && [ -f "$PAK/licenses/ATTRIBUTION.txt" ]
 check $? "LICENSE and licences/ATTRIBUTION.txt are shipped"
 
+# The device has no CA store, so without this every HTTPS call the engine makes
+# dies with curl exit 60 and the mod manager just reports a failed check.
+CA="$PAK/$(jqlock '.ca_bundle.install_path')"
+[ -f "$CA" ]
+check $? "a CA bundle is shipped ($(jqlock '.ca_bundle.install_path'))"
+
+certs=$(grep -c 'BEGIN CERTIFICATE' "$CA" 2>/dev/null || echo 0)
+[ "$certs" -gt 50 ]
+check $? "the CA bundle holds a plausible number of roots ($certs)"
+
+code_only | matches 'CURL_CA_BUNDLE'
+check $? "launch.sh exports CURL_CA_BUNDLE"
+code_only | matches 'SSL_CERT_FILE'
+check $? "launch.sh exports SSL_CERT_FILE (curl here links OpenSSL)"
+
 # ------------------------------------------------------------- contracts
 group "Upstream contracts (assumptions launch.sh hard-codes)"
 

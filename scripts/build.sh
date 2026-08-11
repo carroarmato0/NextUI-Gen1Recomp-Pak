@@ -15,6 +15,7 @@
 #   --tag           build a specific upstream tag instead of upstream.lock's
 #   --refresh-lock  resolve the LATEST upstream release and rewrite upstream.lock
 #                   with the new tag/asset/sha256 (what upstream-watch.yml uses)
+#   --refresh-ca    re-fetch the CA bundle and repin its hash (roots expire)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -26,6 +27,7 @@ PAK="$BUILD/Gen1Recomp.pak"
 WITH_VOXEL=1
 WANT_TAG=""
 REFRESH_LOCK=0
+REFRESH_CA=0
 
 say()  { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33mwarn:\033[0m %s\n' "$*" >&2; }
@@ -36,6 +38,7 @@ while [ $# -gt 0 ]; do
     --no-voxel)     WITH_VOXEL=0 ;;
     --tag)          WANT_TAG="${2:?--tag needs a value}"; shift ;;
     --refresh-lock) REFRESH_LOCK=1 ;;
+    --refresh-ca)   REFRESH_CA=1 ;;
     -h|--help)      sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *)              fail "unknown argument: $1" ;;
   esac
@@ -130,6 +133,24 @@ PORT_ZIP="$CACHE/$ASSET"
 fetch "https://github.com/$REPO/releases/download/$TAG/$ASSET" \
       "$PORT_ZIP" "$ASSET_SHA" "Gen1Recomp $VERSION port ($((  $(jqlock '.gen1recomp.size') / 1024 / 1024 )) MB)"
 
+# CA bundle. The device has no certificate store whatsoever, so without this every
+# HTTPS call the engine makes (mod index, update checks) dies with curl exit 60.
+CA_FILE="$CACHE/cacert.pem"
+if [ "$REFRESH_CA" = 1 ]; then
+  say "refreshing the CA bundle"
+  rm -f "$CA_FILE"
+  curl -fL --connect-timeout 20 --max-time 120 --progress-bar \
+    "$(jqlock '.ca_bundle.url')" -o "$CA_FILE" || fail "could not fetch the CA bundle"
+  newsha="$(sha256sum "$CA_FILE" | cut -d' ' -f1)"
+  tmp="$LOCK.tmp"
+  jq --arg s "$newsha" '.ca_bundle.sha256=$s' "$LOCK" > "$tmp" && mv "$tmp" "$LOCK"
+  say "CA bundle repinned: $newsha"
+  warn "Commit upstream.lock, and re-test HTTPS on a device before releasing."
+else
+  fetch "$(jqlock '.ca_bundle.url')" "$CA_FILE" "$(jqlock '.ca_bundle.sha256')" \
+        "CA bundle (Mozilla via curl.se, $(jqlock '.ca_bundle.mozilla_date'))"
+fi
+
 if [ "$WITH_VOXEL" = 1 ]; then
   VOXEL_ZIP="$CACHE/DRAMATIC_SHAPE-$(jqlock '.voxel_mod.version').zip"
   fetch "$(jqlock '.voxel_mod.url')" "$VOXEL_ZIP" "$(jqlock '.voxel_mod.sha256')" \
@@ -202,6 +223,9 @@ else
 fi
 
 # ----------------------------------------------------------------- pak sources
+mkdir -p "$PAK/assets"
+cp "$CA_FILE" "$PAK/$(jqlock '.ca_bundle.install_path')"
+
 cp "$ROOT/launch.sh" "$PAK/launch.sh"
 chmod +x "$PAK/launch.sh"
 cp "$ROOT/pak.json" "$ROOT/LICENSE" "$PAK/"

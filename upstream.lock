@@ -107,5 +107,24 @@
       "baseroms_is_uwp_only": true,
       "stage_at": "<savedir>/  (PhysFS root)"
     }
+  },
+  "ca_bundle": {
+    "_comment": [
+      "These devices ship NO CA store at all -- /etc/ssl/certs, /etc/ssl/cert.pem and",
+      "/etc/pki are all absent. The engine does HTTPS by shelling out to curl",
+      "(src/net/Fetch.lua, HostShell.httpGet via io.popen), so every request failed with",
+      "curl exit 60, CURLE_PEER_FAILED_VERIFICATION -- which surfaced in the mod manager",
+      "as a failed update check. Verified on a Trimui Brick, 2026-08-11: with",
+      "CURL_CA_BUNDLE set, the same request returns HTTP 200.",
+      "",
+      "Mozilla's bundle as republished by the curl project. Pinned for reproducibility,",
+      "so refreshing it is a deliberate act: run scripts/build.sh --refresh-ca, check the",
+      "new hash in, and note that roots do expire -- a stale bundle fails closed and",
+      "silently, exactly like having none."
+    ],
+    "url": "https://curl.se/ca/cacert.pem",
+    "sha256": "3ff344e30b9b1ed2971044eabb438a08f2e2245ddb5f8ab1a3ad8b63ab4eaf91",
+    "mozilla_date": "2026-07-16",
+    "install_path": "assets/ca-certificates.crt"
   }
 }

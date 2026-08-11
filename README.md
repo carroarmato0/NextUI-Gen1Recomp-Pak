@@ -100,6 +100,16 @@ Worth knowing before you commit to it:
 - Swap writes cause flash wear. Swap.pak's Storage screen shows how much has been written.
 - **Swap does not make anything faster.** It trades storage speed for capacity. It stops the voxel mod being killed; it does not raise your frame rate.
 
+### Why the mod's update check fails
+
+Two separate things, worth telling apart:
+
+**Certificates.** These handhelds ship no CA store at all, and the engine does HTTPS by shelling out to `curl`. Every request therefore failed verification (`curl` exit 60), which the mod manager reported simply as a failed check. This pak ships a CA bundle and points `curl` at it, so HTTPS works.
+
+**The mod's repository is gone.** `DramaticShape/DramaticShapeVoxelMod` returns 404, so its update check fails even with working TLS — there is nothing left to check against. That is not something this pak can fix, and it does not stop the mod working. The copy bundled here (1.7.2) comes from a community archive.
+
+So: a failed update check on the voxel mod specifically is expected. The mod itself still loads and runs.
+
 ### Performance expectations
 
 Be realistic about this. Gen1Recomp's `AUTO` performance tier classifies ARM handhelds as `LOW`, which turns off 3D tilt and survey zoom and caps the frame rate. To get the full voxel effect you have to raise the tier by hand (`OPTIONS → PERFORMANCE`), and that costs frames.

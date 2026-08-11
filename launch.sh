@@ -104,6 +104,23 @@ if [ ! -f "$STATE/xbox_layout" ]; then
     export SDL_GAMECONTROLLERCONFIG="030000005e0400008e02000014010000,TRIMUI Player1,a:b1,b:b0,back:b6,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,dpup:h0.1,guide:b8,leftshoulder:b4,leftstick:b9,lefttrigger:a2,leftx:a0,lefty:a1,rightshoulder:b5,rightstick:b10,righttrigger:a5,rightx:a3,righty:a4,start:b7,x:b3,y:b2,platform:Linux,"
 fi
 
+# --- TLS -------------------------------------------------------------------
+# These devices ship no CA store at all: /etc/ssl/certs, /etc/ssl/cert.pem and
+# /etc/pki are all absent. The engine does HTTPS by shelling out to curl
+# (src/net/Fetch.lua), so every request failed verification with curl exit 60 --
+# which surfaced in the mod manager as a failed update check rather than as
+# anything mentioning certificates.
+#
+# CURL_CA_BUNDLE covers curl; SSL_CERT_FILE covers the OpenSSL it links against.
+CA_BUNDLE="$PAK_DIR/assets/ca-certificates.crt"
+if [ -f "$CA_BUNDLE" ]; then
+    export CURL_CA_BUNDLE="$CA_BUNDLE"
+    export SSL_CERT_FILE="$CA_BUNDLE"
+    echo "tls       CA bundle $CA_BUNDLE"
+else
+    echo "tls       WARNING: no CA bundle shipped; HTTPS (mod index, updates) will fail"
+fi
+
 # --- graphics --------------------------------------------------------------
 # Both platforms expose GLES via the vendor SDL2 (NextUI's own renderer asks for
 # a GLES 3.2 context). Do NOT set SDL_VIDEODRIVER -- NextUI never does, and the
