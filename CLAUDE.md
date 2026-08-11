@@ -44,6 +44,7 @@ scripts/verify.sh             # all static + contract checks (also run by CI and
 scripts/release.sh            # -> dist/Gen1Recomp.pak.zip and dist/Gen1Recomp.pakz
 scripts/deploy.sh             # adb push to the device
 scripts/verify-device.sh      # the real functional test, over ADB
+scripts/profile-device.sh 60  # sample GPU/CPU/memory while playing
 ```
 
 ## Key directories
@@ -80,6 +81,14 @@ the pak directory — a pak update would otherwise destroy them.
   `scripts/build.sh --refresh-ca`, since roots expire and a stale bundle fails the same silent way.
 - **The voxel mod's update check fails regardless** — `DramaticShape/DramaticShapeVoxelMod` is 404.
   Unrelated to TLS, and does not stop the mod working.
+- **The voxel mod is GPU-bound, not memory-bound.** Measured on a Brick: GPU median 91% / p75
+  96% / peak 100% while rendering, LOVE peak RSS **183 MB**, zero swap activity. The ~750 MB
+  figure from nx-redux was repeated here for a while without being measured — it does not match
+  what a short overworld session shows. There is no userspace GPU clock control on this PowerVR
+  part, so the only lever is drawing less.
+- **Do not read `scaling_cur_freq` as CPU load.** schedutil parks the clock at the ceiling
+  regardless of utilisation; profile-device.sh once concluded "CPU-bound" from it on a session
+  that was plainly GPU-bound. Difference `/proc/stat` jiffies instead.
 - **The controller GUID in `launch.sh` is unverified** until someone runs `test/smoke.love` on real
   hardware. It prints every joystick's name and GUID for exactly this reason.
 - **The CPU-tuning block in `launch.sh` may be unnecessary** on stock NextUI, which already sets the

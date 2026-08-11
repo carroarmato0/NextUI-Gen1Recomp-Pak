@@ -80,25 +80,23 @@ It **ships with this pak but is switched off by default.** Enable it from the in
 
 It is off by default for one specific reason: **memory.**
 
-### Why it needs Swap.pak
+### Memory, and whether you need Swap.pak
 
-Game plus voxel mod peaks at roughly **750 MB**. The TrimUI Brick and Smart Pro S have **1 GB total**, shared with the operating system. That does not fit comfortably, so without swap a long session can be killed by the kernel partway through.
+Measured on a TrimUI Brick (1 GB), roughly a minute of overworld play with the mod on:
 
-Install [**Swap.pak**](https://github.com/carroarmato0/NextUI-Swap-Pak) and configure it like this:
+| | |
+|---|---|
+| LÖVE peak RSS | **183 MB** |
+| Swap used | **none** — zero paging across 28 samples |
+| Memory still free | ~358 MB |
 
-| Setting | Use | Why |
-|---|---|---|
-| **Location** | **Internal storage** — *not* the SD card | Swap-in runs at ~17.3 MB/s internally versus ~2.8 MB/s from a card, roughly 6× faster. Faulting 10 MB back in costs about 0.6 s internally and 3.6 s from a card — the difference between a hitch and a freeze |
-| **Size** | **512 MB** | Enough headroom for the ~750 MB peak. Bigger buys very little; swap is a spillover reserve, not extra RAM |
-| **Boot hook** | **Enabled** | Otherwise swap is gone after a reboot and the next session is back to being killed |
-| **Swappiness** | Leave Swap.pak's default (**10**) | Keeps swap as an emergency reserve instead of somewhere the kernel parks things pre-emptively |
+So on this evidence **the voxel mod does not need swap on a 1 GB Brick.** That contradicts the ~750 MB figure reported by the nx-redux project, which this README previously repeated without having measured it. Their number may come from longer sessions, battles, or areas we did not reach; ours is a short overworld sample. Both can be true.
 
-Worth knowing before you commit to it:
+Practical advice: **try it without swap first.** If you get killed mid-session, install [Swap.pak](https://github.com/carroarmato0/NextUI-Swap-Pak) and create **512 MB on internal storage** (swap-in is ~17.3 MB/s internally vs ~2.8 MB/s from the card, about 6× faster), with its boot hook enabled so it survives a reboot.
 
-- Creating a 512 MB swapfile on internal storage takes roughly **30 seconds**, once.
-- **Swap does not survive a NextUI firmware update.** Re-enable it afterwards.
-- Swap writes cause flash wear. Swap.pak's Storage screen shows how much has been written.
-- **Swap does not make anything faster.** It trades storage speed for capacity. It stops the voxel mod being killed; it does not raise your frame rate.
+Two things worth knowing if you do: swap does not survive a NextUI firmware update, and it does not make anything faster — it trades storage speed for capacity, preventing an OOM kill rather than raising your frame rate.
+
+You can check your own numbers with `scripts/profile-device.sh 60`.
 
 ### Why the mod's update check fails
 
@@ -110,11 +108,24 @@ Two separate things, worth telling apart:
 
 So: a failed update check on the voxel mod specifically is expected. The mod itself still loads and runs.
 
-### Performance expectations
+### Performance: it is GPU-bound
 
-Be realistic about this. Gen1Recomp's `AUTO` performance tier classifies ARM handhelds as `LOW`, which turns off 3D tilt and survey zoom and caps the frame rate. To get the full voxel effect you have to raise the tier by hand (`OPTIONS → PERFORMANCE`), and that costs frames.
+Measured on a Brick with the mod enabled, sampling only while actually rendering:
 
-Measured frame rates will be published here once the pak has been verified on hardware. They are deliberately absent rather than estimated — if the mod turns out to be unplayable on a given device, this section will say so.
+| | |
+|---|---|
+| GPU utilisation | median **91%**, p75 **96%**, peak **100%** |
+| System CPU | well below saturation |
+| Verdict | **GPU-bound** |
+
+The A133's PowerVR GPU is the ceiling, and it has no userspace clock control, so the only lever is drawing less. In rough order of payoff:
+
+1. **Cap MAX FPS at 30.** A steady 30 reads far better than a frame rate swinging between 40 and 60. This is usually the single biggest improvement in how it *feels*, even though it lowers the number.
+2. **Lower the voxel mod's quality** in its own OPTIONS rows.
+3. **Cheaper VOID FILL** — the default draws trees in the empty space around the map.
+4. **PERFORMANCE tier.** `AUTO` classifies ARM handhelds as `LOW` already, so this may change nothing; worth confirming rather than assuming.
+
+Be realistic: this is a 3D renderer on a handheld GPU from a budget SoC. Expect a real cost for the voxel look, and expect the 2D game to run comfortably.
 
 ## Controls
 
@@ -178,10 +189,10 @@ Honest status. An untested device is listed as untested, not assumed to work.
 
 | Device | Platform | Screen | Status |
 |---|---|---|---|
-| TrimUI Smart Pro S | `tg5050` | 1280×720 | **Not yet tested** |
-| TrimUI Smart Pro | `tg5040` | 1280×720 | **Not yet tested** |
-| TrimUI Brick | `tg5040` | 1024×768 | **Not yet tested** |
-| TrimUI Brick Pro | `tg5040` | 1024×768 | **Not yet tested** |
+| TrimUI Brick | `tg5040` | 1024×768 | **Runs.** GLES 3 context, ROM import, 2D game, voxel mod all verified on hardware. Audio and controller mapping not yet confirmed |
+| TrimUI Smart Pro | `tg5040` | 1280×720 | Not tested — same platform as the Brick, so likely fine, but unverified |
+| TrimUI Brick Pro | `tg5040` | 1024×768 | Not tested |
+| TrimUI Smart Pro S | `tg5050` | 1280×720 | Not tested — different SoC (Cortex-A55 + Mali) and untried |
 
 The runtime itself is known to work on this hardware class — the LÖVE 11.5 ARM64 build here is the same one shipped by [PortMaster](https://portmaster.games/), and [nx-redux](https://github.com/mohammadsyuhada/nx-redux) runs Gen1Recomp with the voxel mod on both platforms. What is untested is *this pak*.
 
@@ -197,6 +208,7 @@ test/test-launch.sh              # launch.sh behaviour against a fake SD card
 scripts/release.sh               # -> dist/Gen1Recomp.pak.zip and dist/Gen1Recomp.pakz
 scripts/deploy.sh                # adb push to a device
 scripts/verify-device.sh         # the real functional test, on hardware
+scripts/profile-device.sh 60     # sample GPU/CPU/memory while playing
 ```
 
 Needs `curl`, `jq`, `zip`, `unzip`, `sha256sum`, `readelf`.
