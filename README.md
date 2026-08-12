@@ -27,7 +27,7 @@ Credit for the game itself belongs entirely upstream. This repository is packagi
 
 - **NextUI** on a TrimUI device — `tg5040` (Brick, Smart Pro, Brick Pro) or `tg5050` (Smart Pro S)
 - **Your own US Red, Blue or Yellow cartridge dump.** Only the three canonical 1 MiB US ROMs are accepted; the engine verifies by SHA-1 and refuses anything else
-- ~31 MB of card space, or ~13 MB if you build without the 3D mod
+- ~34 MB of card space, or ~15 MB if you build without the 3D mod
 - For the 3D voxel mod: [Swap.pak](https://github.com/carroarmato0/NextUI-Swap-Pak). See [3D voxel mod](#3d-voxel-mod)
 
 ## Install
@@ -67,11 +67,13 @@ Deleting the ROM folder already removes the stale entry, so this is only disk sp
 
 Gen1Recomp needs a cartridge dump **once**. It verifies the ROM, decodes the game data into its own cache, and never reads the ROM again.
 
-So you do not need to move or copy anything. **Leave your dump where you already keep it** — every launch, until a dump has been imported, the pak scans your own Game Boy folders and copies what it finds into the place the engine expects.
+So you do not need to move or copy anything. **Leave your dump where you already keep it** — the pak scans your own Game Boy folders on launch and copies what it finds into the place the engine expects.
 
 It looks in whichever folders NextUI itself considers Game Boy or Game Boy Color: the ones whose name ends in `(GB)` or `(GBC)`, plus a folder named exactly `GB` or `GBC`. The display name in front of the tag is yours — `Game Boy (GB)`, `Nintendo Game Boy (GB)` and `GB` all work, because that is the same rule the frontend uses to decide which emulator opens a ROM.
 
-It hashes the `.gb`/`.gbc` files it finds and copies every version that matches into the engine's import folder. Your file is only ever read: never moved, renamed or modified. Once the engine has decoded a dump the scan stops running.
+It hashes the `.gb`/`.gbc` files it finds and copies every version that matches into the engine's import folder. Your file is only ever read: never moved, renamed or modified.
+
+The scan tracks each version separately, so **you can add a version later**: import Red today, drop a Yellow dump on the card next month, and the next launch picks it up. A version already imported is left alone, and once all three are in the scan stops running altogether. Only files of exactly 1 MiB are hashed — the engine accepts no other size — so a large homebrew library costs little.
 
 Accepted dumps (1 MiB US cartridges only). Check yours on the device with `sha256sum <file>`:
 
@@ -269,7 +271,7 @@ Honest status. An untested device is listed as untested, not assumed to work.
 | TrimUI Brick | `tg5040` | 1024×768 | **Runs.** GLES 3 context, ROM import, 2D game, voxel mod, controller mapping (A confirms) and audio all verified on hardware. Re-verified as a Tool pak on v0.2.0: launches from Tools, imports both Red and Blue out of an 89-ROM library, removes a v0.1.0 ROM folder without touching any of 1061 save files, and returns cleanly to the frontend |
 | TrimUI Smart Pro | `tg5040` | 1280×720 | Not tested — same platform as the Brick, so likely fine, but unverified |
 | TrimUI Brick Pro | `tg5040` | 1024×768 | Not tested |
-| TrimUI Smart Pro S | `tg5050` | 1280×720 | **Runs.** Profiled with the voxel mod; needs swap. Audio verified |
+| TrimUI Smart Pro S | `tg5050` | 1280×720 | **Runs.** Profiled with the voxel mod; needs swap. Audio verified. Yellow import verified end to end on hardware: a dump added after Red and Blue were already imported is picked up on the next launch and decoded (cache complete in ~50 s) |
 
 The runtime itself is known to work on this hardware class — the LÖVE 11.5 ARM64 build here is the same one shipped by [PortMaster](https://portmaster.games/), and [nx-redux](https://github.com/mohammadsyuhada/nx-redux) runs Gen1Recomp with the voxel mod on both platforms. What is untested is *this pak*.
 
@@ -279,7 +281,7 @@ No compiler and no cross-toolchain. Everything is fetched from pinned, hash-veri
 
 ```sh
 scripts/build.sh                 # fetch + stage into build/Gen1Recomp.pak/
-scripts/build.sh --no-voxel      # skip the voxel mod (~18 MB of the 31 MB pak)
+scripts/build.sh --no-voxel      # skip the voxel mod (~19 MB of the 34 MB pak)
 scripts/verify.sh                # static + contract checks
 test/test-launch.sh              # launch.sh behaviour against a fake SD card
 scripts/release.sh               # -> dist/Gen1Recomp.pak.zip and dist/Gen1Recomp.pakz

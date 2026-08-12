@@ -148,10 +148,12 @@ BR="$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d"
 [ -z "$(find "$BR" -name '._*' 2>/dev/null)" ] && [ "$(find "$BR" -type f | wc -l)" -eq 1 ]
 check $? "skips the AppleDouble decoy and imports exactly one file"
 
-# Second launch must not rescan.
+# A rerun must not re-stage the dump that is already sitting there waiting to be
+# decoded. (It must still scan: see "imports a version added after an earlier
+# one" below for why skipping outright is wrong.)
 run_launch "$SB"
-log_of "$SB" | grep -q "already imported"
-check $? "skips the scan once a ROM has been imported"
+[ "$(find "$BR" -type f | wc -l)" -eq 1 ]
+check $? "a rerun leaves the already-staged dump alone"
 rm -rf "$SB"
 
 # --------------------------------------------------------------------------
@@ -235,6 +237,82 @@ BR="$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d"
 check $? "both dumps imported (Blue sorts first but must not hide Red)"
 log_of "$SB" | grep -q "staged 2 dump"
 check $? "reports both imports"
+rm -rf "$SB"
+
+# --------------------------------------------------------------------------
+# Regression, found on a Smart Pro S (2026-08-12). The gate used to be
+# all-or-nothing: one staged dump, or one decoded cache, skipped the entire scan
+# for good. A player who imported Red and Blue and only later added a Yellow
+# dump never got it -- the scan that would have matched it never ran again, and
+# the log said "already imported" as if everything were fine.
+echo
+echo "imports a version added after an earlier one"
+SB="$(make_sandbox)"
+GB="$SB/SDCARD/Roms/Game Boy (GB)"
+GBC="$SB/SDCARD/Roms/Game Boy Color (GBC)"
+BR="$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d"
+head -c 1048576 /dev/urandom > "$GB/Pokemon - Red Version.gb"
+R_SHA="$(sha256sum "$GB/Pokemon - Red Version.gb" | cut -d' ' -f1)"
+sed -i "s/5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b/$R_SHA/" "$SB/pak/launch.sh"
+run_launch "$SB"
+[ -f "$BR/Pokemon - Red Version.gb" ]
+check $? "fixture: the first launch stages Red"
+
+# The engine decodes Red on boot, writing its cache under red/. The staged dump
+# stays where it is -- leaving it is deliberate (findPendingRom skips versions
+# already imported), and it is exactly what tripped the old gate.
+mkdir -p "$BR/red/data/generated"
+
+# Only now does the player drop a Yellow dump onto the card.
+head -c 1048576 /dev/urandom > "$GBC/Pokemon - Yellow Version.gbc"
+Y_SHA="$(sha256sum "$GBC/Pokemon - Yellow Version.gbc" | cut -d' ' -f1)"
+sed -i "s/8cbaa499397e4f1a679c992ea9382a2dd7942ab398b48c19829c2d9529de47bf/$Y_SHA/" "$SB/pak/launch.sh"
+run_launch "$SB"
+[ -f "$BR/Pokemon - Yellow Version.gbc" ]
+check $? "stages a dump added after an earlier version was imported"
+log_of "$SB" | grep -q "matched Yellow"
+check $? "identifies it as Yellow"
+log_of "$SB" | grep -q "matched Red"
+if [ $? -eq 0 ]; then bad "re-staged Red, which the engine had already decoded"
+else ok "leaves the already-decoded Red alone"; fi
+[ "$(find "$BR" -maxdepth 1 -type f | wc -l)" -eq 2 ]
+check $? "ends up with exactly the two dumps, Red staged and Yellow added"
+rm -rf "$SB"
+
+# --------------------------------------------------------------------------
+echo
+echo "stops scanning only when there is genuinely nothing left to import"
+SB="$(make_sandbox)"
+BR="$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d"
+mkdir -p "$BR/red/data/generated" "$BR/blue/data/generated" "$BR/yellow"
+# Either marker counts: the engine writes rom-cache.complete beside the
+# generated data (RomImporter.lua MARKER_PATH, CacheFs.lua:425).
+touch "$BR/yellow/rom-cache.complete"
+head -c 1048576 /dev/urandom > "$SB/SDCARD/Roms/Game Boy (GB)/cart.gb"
+run_launch "$SB"
+log_of "$SB" | grep -q "all three versions"
+check $? "skips the scan once all three versions are imported"
+log_of "$SB" | grep -q "looking in"
+if [ $? -eq 0 ]; then bad "hashed ROM folders with nothing left to import"
+else ok "hashes nothing when there is nothing left to import"; fi
+rm -rf "$SB"
+
+# --------------------------------------------------------------------------
+# The engine refuses anything that is not exactly 1 MiB (findPendingRom checks
+# #data == 1024*1024), so staging one would only produce a file it silently
+# ignores. Skipping them by size also keeps the now-repeating scan cheap: on a
+# real card it takes the hashing from 90 files down to 20.
+echo
+echo "ignores files that cannot be a cartridge dump"
+SB="$(make_sandbox)"
+BR="$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d"
+head -c 524288 /dev/urandom > "$SB/SDCARD/Roms/Game Boy (GB)/homebrew.gb"
+H_SHA="$(sha256sum "$SB/SDCARD/Roms/Game Boy (GB)/homebrew.gb" | cut -d' ' -f1)"
+# Even with a hash the scan would otherwise accept.
+sed -i "s/2a951313c2640e8c2cb21f25d1db019ae6245d9c7121f754fa61afd7bee6452d/$H_SHA/" "$SB/pak/launch.sh"
+run_launch "$SB"
+[ ! -f "$BR/homebrew.gb" ]
+check $? "does not stage a file of the wrong size"
 rm -rf "$SB"
 
 # --------------------------------------------------------------------------

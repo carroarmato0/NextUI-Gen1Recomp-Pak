@@ -138,6 +138,23 @@ check $? "game/portable.txt is absent (else a pak update would delete every save
 [ ! -e "$PAK/game/data/generated" ] && [ ! -e "$PAK/game/assets/generated" ]
 check $? "no ROM-derived generated data in the payload"
 
+# Every version the engine declares must have its import manifest on disk. The
+# upstream port zip ships Red's and Blue's but NOT Yellow's, so build.sh lifts
+# that one out of the same release's .love. If that ever quietly stops working
+# the failure lands on the player, mid-import, as "ROM import metadata is
+# missing" (RomImporter.lua) -- nothing else here would catch it.
+GV="$PAK/game/src/core/GameVersion.lua"
+if [ -f "$GV" ]; then
+    missing=
+    for m in $(sed -n 's/.*manifest = "\([^"]*\)".*/\1/p' "$GV"); do
+        [ -f "$PAK/game/$m" ] || missing="$missing $m"
+    done
+    [ -z "$missing" ]
+    check $? "every import manifest GameVersion.lua declares is shipped${missing:+ -- MISSING:$missing}"
+else
+    bad "GameVersion.lua is missing from the payload"
+fi
+
 # 1 MiB is the exact size of the cartridges this engine accepts, so anything of
 # that size and shape is treated as a possible ROM leak and blocks the build.
 leak=$(find "$PAK" -type f \( -iname '*.gb' -o -iname '*.gbc' \) 2>/dev/null | head -5)

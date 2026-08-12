@@ -44,7 +44,7 @@ shared by both platforms — there are no per-platform `bin/` or `lib/` director
 
 ```sh
 scripts/build.sh              # fetch + stage runtime and game payload (verifies upstream.lock)
-scripts/build.sh --no-voxel   # skip the voxel mod (7.8 MB download, 18 MB of the 31 MB pak)
+scripts/build.sh --no-voxel   # skip the voxel mod (7.8 MB download, 19 MB of the 34 MB pak)
 scripts/verify.sh             # all static + contract checks (also run by CI and release.sh)
 test/test-launch.sh           # launch.sh behaviour under dash against a fake SD card
 scripts/release.sh            # -> dist/Gen1Recomp.pak.zip and dist/Gen1Recomp.pakz
@@ -134,6 +134,28 @@ the pak directory — a pak update would otherwise destroy them.
   — a deliberate maintainer call, taken while the install base is small. The Emu pak under `Emus/`
   is only reported: deleting the ROM folder already removes the entry, so removing an entire
   installed pak would buy disk space and nothing else. Both are logged as `legacy` lines.
+- **Upstream's rg34xxsp asset omits Yellow's import manifest, so we fetch a second archive.**
+  The port zip ships `tools/rom_manifest.json` (Red) and `tools/rom_manifest_blue.json` but not
+  `tools/rom_manifest_yellow.json` — while the engine inside that same zip does declare Yellow
+  (`GameVersion.lua:46`). A Yellow dump therefore staged fine, passed the engine's SHA-1 check, and
+  then died at `RomImporter.lua:264` with *"ROM import metadata is missing"*. The `.love` asset of
+  the same release carries the file, so `build.sh` pins that archive too and lifts out the one
+  member (+1.1 MB; pak is 34 MB with the voxel mod). Both pins move together on `--update` —
+  a manifest from a different release than the engine reading it is the mismatch the lock exists to
+  prevent. `verify.sh` now asserts every manifest `GameVersion.lua` declares is on disk, and
+  `build.sh` warns instead of overwriting if upstream ever starts shipping Yellow's itself.
+- **The import gate is per-version, and must stay that way.** It was all-or-nothing through v0.2.0:
+  any one staged dump or decoded cache skipped the whole scan permanently, so a player who imported
+  Red and Blue and later added Yellow never got it — and the log said `already imported`, so it read
+  as working. Reproduced on a Smart Pro S, 2026-08-12. `launch.sh` now builds a `$HAVE` set from
+  `$SAVEROOT/<red|blue|yellow>/{data/generated,rom-cache.complete}` plus the hashes of dumps staged
+  at the save root, and only skips the scan when all three are in. The old `$SAVEROOT/data/generated`
+  check was also simply the wrong path — the engine writes per-version prefixes
+  (`GameVersion.lua` `cachePrefix`), so that branch never once fired.
+- **The scan now repeats until all three versions are in, so it filters by size first.** Only files
+  of exactly 1048576 bytes are hashed, which is what `findPendingRom` requires anyway
+  (`#data == 1024 * 1024`). On a real 90-ROM card that is 20 files instead of 90. The device has no
+  `stat`, so the size comes from field 5 of `ls -l`.
 - **The smoke test lives in the state dir, not a ROM folder.** With no launch argument, `launch.sh`
   discovers `$STATE/*.love` and runs it instead of the game. `verify-device.sh` pushes it, prompts,
   and removes it again — a forgotten one hides the game on every later launch.

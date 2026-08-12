@@ -381,25 +381,44 @@ export POKEPORT_GBCFX="${POKEPORT_GBCFX:-0}"
 # the save directory into that root, so a dump dropped at the top of the save dir
 # is found; anything in a subfolder is invisible.
 SAVEROOT="$STATE/love/pokemon-love2d"
-GENERATED="$SAVEROOT/data/generated"
 ROM_SHA256_RED=5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b
 ROM_SHA256_BLUE=2a951313c2640e8c2cb21f25d1db019ae6245d9c7121f754fa61afd7bee6452d
 ROM_SHA256_YELLOW=8cbaa499397e4f1a679c992ea9382a2dd7942ab398b48c19829c2d9529de47bf
 
-rom_already_present() {
-    # Decoded cache exists: nothing more to do, ever.
-    [ -d "$GENERATED" ] && return 0
-    # A dump is already staged where the engine looks. Leaving it there is
-    # deliberate: findPendingRom() skips versions already imported, so it is inert
-    # afterwards, and it lets the engine re-import if the cache is ever cleared.
-    for f in "$SAVEROOT"/*.gb "$SAVEROOT"/*.gbc; do
-        [ -f "$f" ] && return 0
-    done
-    return 1
-}
+# Which versions the engine already has, as a space-delimited set. Its decoded
+# cache lives in a per-version subfolder -- red/, blue/, yellow/ (GameVersion.lua
+# cachePrefix) -- finished when rom-cache.complete or the generated data is
+# there. A dump still staged at the save-dir root counts too: findPendingRom()
+# picks it up on the next boot, and leaving it there is deliberate.
+#
+# Per-version on purpose. This gate used to be all-or-nothing: any one staged
+# dump or decoded cache skipped the entire scan, for good. So a player who
+# imported Red and Blue and only later added a Yellow dump never got it -- the
+# scan that would have matched it never ran again, and the log said "already
+# imported" as though nothing were wrong. Found on a Smart Pro S, 2026-08-12.
+HAVE=" "
+for v in red blue yellow; do
+    if [ -d "$SAVEROOT/$v/data/generated" ] || [ -f "$SAVEROOT/$v/rom-cache.complete" ]; then
+        HAVE="$HAVE$v "
+    fi
+done
+# Staged but not yet decoded. Hashing is the only way to tell which version a
+# staged dump is, and it is cheap here: three files at most, 1 MiB each.
+for f in "$SAVEROOT"/*.gb "$SAVEROOT"/*.gbc; do
+    [ -f "$f" ] || continue
+    case "$(sha256sum "$f" 2>/dev/null | cut -d' ' -f1)" in
+        "$ROM_SHA256_RED")    HAVE="$HAVE""red " ;;
+        "$ROM_SHA256_BLUE")   HAVE="$HAVE""blue " ;;
+        "$ROM_SHA256_YELLOW") HAVE="$HAVE""yellow " ;;
+    esac
+done
+have_count=0
+for v in red blue yellow; do
+    case "$HAVE" in *" $v "*) have_count=$((have_count + 1)) ;; esac
+done
 
-if rom_already_present; then
-    echo "rom       already imported; skipping the scan"
+if [ "$have_count" -eq 3 ]; then
+    echo "rom       all three versions already imported; skipping the scan"
 elif ! command -v sha256sum >/dev/null 2>&1; then
     # Degrade rather than guess. Copying an unverified 1 MiB file into the import
     # folder would just make the engine reject it later with less explanation.
@@ -438,17 +457,29 @@ else
             # Skip AppleDouble junk: a macOS "._cart.gb" ends in .gb and would
             # otherwise be hashed pointlessly.
             case "$(basename "$rom")" in ._*) continue ;; esac
+            # The engine accepts an exact 1 MiB image and nothing else
+            # (findPendingRom checks #data == 1024*1024), so no other size can be
+            # one of the three. This is a stat rather than a read, and it takes
+            # the hashing on a real card from 90 files to 20 -- which now matters,
+            # because the scan repeats on every launch until all three are in.
+            # The device has no stat(1); field 5 of ls -l is the size on both
+            # busybox and coreutils.
+            [ "$(ls -l "$rom" 2>/dev/null | awk '{print $5}')" = 1048576 ] || continue
             sha=$(sha256sum "$rom" 2>/dev/null | cut -d' ' -f1)
             case "$sha" in
-                "$ROM_SHA256_RED")    version=Red ;;
-                "$ROM_SHA256_BLUE")   version=Blue ;;
-                "$ROM_SHA256_YELLOW") version=Yellow ;;
+                "$ROM_SHA256_RED")    version=Red;    vid=red ;;
+                "$ROM_SHA256_BLUE")   version=Blue;   vid=blue ;;
+                "$ROM_SHA256_YELLOW") version=Yellow; vid=yellow ;;
                 *) continue ;;
             esac
+            # Already imported, or already staged from another folder: copying a
+            # 1 MiB file the engine would only skip buys nothing.
+            case "$HAVE" in *" $vid "*) continue ;; esac
             echo "rom       matched $version: $rom"
             mkdir -p "$SAVEROOT"
             if cp -f "$rom" "$SAVEROOT/$(basename "$rom")"; then
                 imported=$((imported + 1))
+                HAVE="$HAVE$vid "
             else
                 echo "rom       WARNING: could not copy $version into the import folder"
             fi
