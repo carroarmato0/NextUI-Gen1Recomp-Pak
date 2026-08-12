@@ -104,10 +104,17 @@ if command -v readelf >/dev/null; then
 
     needed="$(readelf -d "$PAK/bin/love.aarch64" 2>/dev/null \
               | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p' | sort | tr '\n' ' ')"
-    # If this set grows, the new library must either ship in libs.aarch64/ or be
-    # present in the firmware -- otherwise the device gets a loader failure.
+    # If this set grows, the new library must ship in libs.aarch64/ or bin/lib/,
+    # or be present in the firmware -- otherwise the device gets a loader failure.
     [ "$needed" = "ld-linux-aarch64.so.1 libc.so.6 liblove-11.5.so libluajit-5.1.so.2 " ]
     check $? "love.aarch64 needs only libc + the bundled liblove/libluajit  [$needed]"
+
+    # liblove NEEDs libmpg123.so.0, and the firmware ships none on tg5040/tg5050,
+    # so the pak must carry it (see the mpg123 note in upstream.lock). If liblove
+    # ever stops needing it, drop the bundle rather than shipping a dead file.
+    readelf -d "$PAK/libs.aarch64/liblove-11.5.so" 2>/dev/null \
+        | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p' | matches '^libmpg123\.so\.0$'
+    check $? "liblove still NEEDs libmpg123.so.0 (the reason bin/lib exists)"
 else
     note "readelf unavailable -- skipped ELF checks"
 fi
@@ -125,6 +132,39 @@ while IFS=$'\t' read -r rel want; do
     [ "$got" = "$want" ] || { bad "runtime hash mismatch: $rel"; rt_ok=1; }
 done < <(jq -r '.love_runtime.files | to_entries[] | [.key,.value] | @tsv' "$LOCK")
 check $rt_ok "every runtime file matches its pin in upstream.lock"
+
+# The bundled libmpg123 (see the LOVE runtime note above). It lives in bin/lib/,
+# not libs.aarch64/, so the "exactly 4" check above stays about the LOVE runtime.
+MPG="$PAK/$(jqlock '.mpg123.install_path')"
+[ -f "$MPG" ]
+check $? "$(jqlock '.mpg123.install_path') is shipped (liblove needs it, the firmware lacks it)"
+
+if command -v readelf >/dev/null && [ -f "$MPG" ]; then
+    readelf -h "$MPG" 2>/dev/null | matches 'AArch64'
+    check $? "bin/lib/libmpg123.so.0 is an AArch64 ELF"
+
+    # SONAME must be exactly what liblove looks up, or the loader ignores the file.
+    readelf -d "$MPG" 2>/dev/null | matches 'Library soname: \[libmpg123\.so\.0\]'
+    check $? "bin/lib/libmpg123.so.0 has SONAME libmpg123.so.0"
+
+    # It must not out-require the runtime the device actually has: liblove itself
+    # tops out at GLIBC_2.27, so a libmpg123 needing anything newer would load-fail
+    # on the same device liblove runs on. The pinned build needs only GLIBC_2.17.
+    hi="$(readelf -V "$MPG" 2>/dev/null | grep -oE 'GLIBC_[0-9.]+' | sort -V | tail -1)"
+    [ "$hi" = "GLIBC_2.17" ]
+    check $? "bin/lib/libmpg123.so.0 needs only GLIBC_2.17 (found ${hi:-none})"
+fi
+
+got=$(sha256sum "$MPG" 2>/dev/null | cut -d' ' -f1)
+[ "$got" = "$(jqlock '.mpg123.so_sha256')" ]
+check $? "bin/lib/libmpg123.so.0 matches its pin in upstream.lock"
+
+# Bundling the library is useless unless launch.sh puts its directory on the
+# loader's search path. It must also keep libs.aarch64 on the path.
+code_only | matches 'LD_LIBRARY_PATH=.*PAK_DIR/bin/lib'
+check $? "launch.sh adds \$PAK_DIR/bin/lib to LD_LIBRARY_PATH"
+code_only | matches 'LD_LIBRARY_PATH=.*PAK_DIR/libs\.aarch64'
+check $? "launch.sh keeps \$PAK_DIR/libs.aarch64 on LD_LIBRARY_PATH"
 
 # ------------------------------------------------------ payload hygiene
 group "Payload hygiene"

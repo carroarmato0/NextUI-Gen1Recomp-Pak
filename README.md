@@ -253,7 +253,7 @@ adb shell cat /mnt/SDCARD/.userdata/tg5050/logs/Gen1Recomp.txt
 
 | Symptom | Look for |
 |---|---|
-| Nothing happens when launched | `FATAL` in the log — usually an incomplete install |
+| Nothing happens when launched | `FATAL` in the log — usually an incomplete install. On **v0.2.1 and earlier** this was instead `error while loading shared libraries: libmpg123.so.0` (the log ended right after `=== love output follows ===`); update to **v0.2.2+**, which bundles that library |
 | Two Gen1Recomp entries, one under Games | A leftover v0.1.0 install. The `legacy` lines say what was removed and what is left |
 | Game asks for a ROM you already have | `rom` lines: the scan reports every folder it searched, and says so explicitly when it found no Game Boy folder at all |
 | Audio crackles or distorts | `XRUN`. Try removing `no-cpu-tuning` from the state dir if you created it |
@@ -290,7 +290,7 @@ scripts/verify-device.sh         # the real functional test, on hardware
 scripts/profile-device.sh 60     # sample GPU/CPU/memory while playing
 ```
 
-Needs `curl`, `jq`, `zip`, `unzip`, `sha256sum`, `readelf`.
+Needs `curl`, `jq`, `zip`, `unzip`, `sha256sum`, `readelf`, `ar` and `tar` (the last two unpack the bundled `libmpg123` from its `.deb`).
 
 `upstream.lock` pins every third-party artifact by SHA-256 and every assumption the launcher makes about upstream's payload. `verify.sh` re-checks all of it, so an upstream change that would break the pak fails the build with a name attached instead of producing a black screen on your device. A scheduled workflow watches upstream for new releases and prepares a **draft** release plus a device checklist — it never publishes, because CI cannot test any of what matters.
 
@@ -308,6 +308,7 @@ This pak is **MIT**. It bundles:
 
 - **[Gen1Recomp](https://github.com/bryanthaboi/gen1recomp)** by bryanthaboi — MIT. The actual game; version **0.1.77** is bundled here. Upstream credits the [pret](https://github.com/pret) group's `pokered` disassembly as making the project possible.
 - **[LÖVE](https://love2d.org/) 11.5** — zlib. The ARM64 build comes from **[PortMaster](https://portmaster.games/)**, which is why this pak needs no compiler.
+- **[mpg123](https://www.mpg123.de/)** (`libmpg123.so.0`) — LGPL-2.1. A dependency of LÖVE that the TrimUI firmware does not ship, so the pak bundles it (`bin/lib/`); without it the game cannot load. The aarch64 build comes unmodified from the Ubuntu 18.04 `libmpg123-0` package.
 - **DramaticShapeVoxelMod** 1.7.2 — the 3D mod. Its original repository is no longer available; the copy used here comes from the community archive [`linkfy/DramaticShapeVoxelModBackup`](https://github.com/linkfy/DramaticShapeVoxelModBackup).
 - **[NextUI](https://github.com/LoveRetro/NextUI)** — the firmware this targets.
 - **[Swap.pak](https://github.com/carroarmato0/NextUI-Swap-Pak)** — recommended for the voxel mod. The swap performance figures quoted above are its measurements.

@@ -54,14 +54,23 @@ export XDG_CONFIG_HOME="$STATE"
 echo "state     $STATE"
 
 # --- shared libraries ------------------------------------------------------
-# love.aarch64 needs only libc plus the bundled liblove/libluajit. liblove's
-# remaining dependencies come from the firmware: SDL2 and mpg123 from
-# /usr/trimui/lib, and freetype, openal, theoradec, vorbisfile, z and stdc++
-# from /usr/lib. Nothing else has to be shipped.
+# love.aarch64 needs only libc plus the bundled liblove/libluajit. liblove in
+# turn pulls in more: libs.aarch64/ ships liblove, libluajit, libmodplug and
+# libogg, and the firmware supplies SDL2 from /usr/trimui/lib and freetype,
+# openal, theoradec, vorbisfile, z and stdc++ from /usr/lib.
 #
-# Keep the original path: system helpers spawned below load libmsettings.so from
-# .system/lib, which a game-first override would shadow.
-export LD_LIBRARY_PATH="$PAK_DIR/libs.aarch64:/usr/trimui/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# The one exception is libmpg123.so.0. liblove NEEDs it, but neither the LOVE
+# port zip nor the firmware provides it on tg5040/tg5050 -- love.aarch64 died at
+# load with "libmpg123.so.0: cannot open shared object file". It is the only such
+# gap (the loader named it, not the entries before it, which all resolve), so the
+# pak bundles exactly it in bin/lib/ and that directory is added below.
+#
+# bin/lib comes before /usr/trimui/lib so the bundled libmpg123 wins if a future
+# firmware ever adds its own; it holds only libmpg123, so nothing else is shadowed
+# -- in particular the vendor SDL2 in /usr/trimui/lib, which the GLES path needs.
+# Keep /usr/trimui/lib on the path: system helpers spawned below load
+# libmsettings.so from .system/lib, which a game-first override would shadow.
+export LD_LIBRARY_PATH="$PAK_DIR/libs.aarch64:$PAK_DIR/bin/lib:/usr/trimui/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 # --- audio routing ---------------------------------------------------------
 # audiomon maintains the ALSA config for whichever output sink is selected in

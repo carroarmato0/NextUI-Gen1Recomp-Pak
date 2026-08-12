@@ -45,7 +45,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-for t in curl unzip zip jq sha256sum readelf; do
+for t in curl unzip zip jq sha256sum readelf ar tar; do
   command -v "$t" >/dev/null || fail "$t is required"
 done
 
@@ -64,7 +64,10 @@ fetch() {
     rm -f "$dest"
   fi
   say "downloading $label"
-  curl -fL --connect-timeout 20 --max-time 600 --retry 3 --retry-delay 2 \
+  # --retry-all-errors so a mid-transfer "connection reset" (seen intermittently
+  # from Launchpad's librarian) is retried, not just the HTTP codes --retry covers.
+  curl -fL --connect-timeout 20 --max-time 600 \
+    --retry 3 --retry-delay 2 --retry-all-errors --retry-connrefused \
     --progress-bar "$url" -o "$dest.part" || fail "download failed: $url"
   mv "$dest.part" "$dest"
   if [ -n "$want" ]; then
@@ -185,6 +188,12 @@ if [ "$WITH_VOXEL" = 1 ]; then
         "voxel mod $(jqlock '.voxel_mod.version') (~8 MB)"
 fi
 
+# libmpg123: liblove needs it and the firmware does not ship it (see the mpg123
+# note in upstream.lock). Fetched as a Debian/Ubuntu .deb and unpacked below.
+MPG_DEB="$CACHE/$(basename "$(jqlock '.mpg123.url')")"
+fetch "$(jqlock '.mpg123.url')" "$MPG_DEB" "$(jqlock '.mpg123.deb_sha256')" \
+      "libmpg123 $(jqlock '.mpg123.version') (aarch64 .deb)"
+
 # --------------------------------------------------------------------- staging
 say "staging $PAK"
 rm -rf "$BUILD"
@@ -218,6 +227,32 @@ while IFS=$'\t' read -r rel want; do
 Upstream changed its bundled LOVE runtime. Verify it on device, then update
 love_runtime.files in upstream.lock."
 done < <(jq -r '.love_runtime.files | to_entries[] | [.key, .value] | @tsv' "$LOCK")
+
+# Firmware-supplement library: libmpg123.so.0.
+#
+# liblove NEEDs it and neither the port zip nor the firmware provides it, so
+# love.aarch64 fails to load without this one file (see the mpg123 note in
+# upstream.lock). It goes in its own bin/lib/ rather than libs.aarch64/, which
+# stays exactly the pinned LOVE runtime; launch.sh adds bin/lib to LD_LIBRARY_PATH.
+say "unpacking the bundled libmpg123 into bin/lib/"
+mkdir -p "$PAK/bin/lib"
+MPG_MEMBER="$(jqlock '.mpg123.member')"
+MPG_WORK="$WORK/mpg123"
+mkdir -p "$MPG_WORK"
+# .deb = an ar archive whose data.tar.xz holds the files. `ar p` streams that
+# member to tar; the pinned deb uses xz, so -J is correct and asserts it.
+ar p "$MPG_DEB" data.tar.xz | tar -xJ -C "$MPG_WORK" "./$MPG_MEMBER" \
+  || fail "could not extract $MPG_MEMBER from $(basename "$MPG_DEB")"
+[ -s "$MPG_WORK/$MPG_MEMBER" ] || fail "$MPG_MEMBER came out empty from $(basename "$MPG_DEB")"
+# Install under the SONAME liblove looks up (libmpg123.so.0), as a real file --
+# never a symlink, which exFAT/FAT32 cards cannot store.
+cp "$MPG_WORK/$MPG_MEMBER" "$PAK/$(jqlock '.mpg123.install_path')"
+got="$(sha256sum "$PAK/$(jqlock '.mpg123.install_path')" | cut -d' ' -f1)"
+want="$(jqlock '.mpg123.so_sha256')"
+[ "$got" = "$want" ] || fail "the extracted libmpg123 is not the pinned build.
+  expected $want
+  got      $got"
+say "verified bin/lib/libmpg123.so.0 against upstream.lock"
 
 # Game payload.
 cp -R "$SRC/lovegame" "$PAK/game"
@@ -284,6 +319,11 @@ Bundles:
   LOVE $(jqlock '.love_runtime.version') aarch64 runtime -- zlib
     https://love2d.org/  --  aarch64 build from PortMaster
     https://github.com/PortsMaster/PortMaster-GUI
+
+  libmpg123 $(jqlock '.mpg123.version') (libmpg123.so.0, aarch64) -- LGPL-2.1
+    https://www.mpg123.de/
+    A dependency of liblove that the firmware does not ship; bundled unmodified
+    from the Ubuntu 18.04 $(jqlock '.mpg123.package') package.
 
 $( [ "$WITH_VOXEL" = 1 ] && cat <<VOX
   DramaticShapeVoxelMod $(jqlock '.voxel_mod.version')

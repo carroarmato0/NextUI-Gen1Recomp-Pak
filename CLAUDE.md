@@ -38,7 +38,9 @@ NextUI is TrimUI-only (`makefile:15` upstream is `PLATFORMS = tg5050 tg5040`). T
 target here, unlike the author's other paks.
 
 Both platforms are **1 GB** on Brick and Smart Pro S. The LÖVE runtime is a single aarch64 binary
-shared by both platforms — there are no per-platform `bin/` or `lib/` directories.
+shared by both platforms — there are no *per-platform* `bin/` or `lib/` directories. There is one
+shared `bin/lib/`, holding the bundled `libmpg123.so.0` the firmware does not ship (see the gotcha
+below); the aarch64 build is identical on tg5040 and tg5050.
 
 ## Key commands
 
@@ -82,6 +84,21 @@ the pak directory — a pak update would otherwise destroy them.
   `contracts.device_missing_tools` is enforced by `verify.sh` — the original SHA-1 scan
   matched nothing and logged no error, so nothing off-device could have caught it. `stat`,
   `taskset`, `openssl`, `cksum` and `nproc` are also absent.
+- **The firmware ships no `libmpg123.so.0`, which `liblove` needs.** `readelf -d` on
+  `liblove-11.5.so` lists it, but neither the RG34XXSP port zip nor PortMaster's own `love_11.5`
+  runtime bundles it (both ship only liblove, libluajit, libmodplug, libogg), and it is absent from
+  `/usr/trimui/lib` on tg5040/tg5050. So `love.aarch64` died at load with *"error while loading
+  shared libraries: libmpg123.so.0: cannot open shared object file"* — a black screen, the log
+  ending right after `=== love output follows ===`. It is the *only* NEEDED library the firmware
+  lacks: the loader named it, not the entries before it (SDL2, freetype, openal, z, vorbisfile,
+  theoradec), which resolve. `build.sh` unpacks it from a pinned Ubuntu 18.04 `.deb` into `bin/lib/`
+  and `launch.sh` adds that directory to `LD_LIBRARY_PATH` (before `/usr/trimui/lib`, so the vendor
+  SDL2 the GLES path needs is not shadowed). The Ubuntu 18.04 build is deliberate: it needs only
+  `GLIBC_2.17`, so it loads on any device this pak targets, where a current distro build would pull
+  in `GLIBC_2.29+` math symbols. `verify.sh` pins the extracted `.so`, asserts its SONAME and glibc
+  ceiling, and fails if `liblove` ever stops needing it. Do **not** bundle SDL2, freetype, openal or
+  the rest of `liblove`'s dependencies — those come from the firmware, and shadowing the vendor SDL2
+  breaks GLES.
 - **The device has no CA store.** `/etc/ssl/certs`, `/etc/ssl/cert.pem` and `/etc/pki` are all
   absent, and the engine does HTTPS by shelling out to `curl` (`src/net/Fetch.lua`). Without a
   bundle every request fails with curl exit 60, surfacing in the mod manager as a failed update
