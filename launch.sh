@@ -459,12 +459,13 @@ else
             case "$(basename "$rom")" in ._*) continue ;; esac
             # The engine accepts an exact 1 MiB image and nothing else
             # (findPendingRom checks #data == 1024*1024), so no other size can be
-            # one of the three. This is a stat rather than a read, and it takes
-            # the hashing on a real card from 90 files to 20 -- which now matters,
-            # because the scan repeats on every launch until all three are in.
-            # The device has no stat(1); field 5 of ls -l is the size on both
-            # busybox and coreutils.
-            [ "$(ls -l "$rom" 2>/dev/null | awk '{print $5}')" = 1048576 ] || continue
+            # one of the three. This reads no file contents, and it takes the
+            # hashing on a real card from 90 files to 20 -- which matters, because
+            # the scan repeats on every launch until all three are in.
+            # find rather than stat(1), which the device does not ship: busybox
+            # find reads the c suffix as exact bytes (confirmed on a Smart Pro S,
+            # including on a name full of spaces and brackets).
+            [ -n "$(find "$rom" -size 1048576c 2>/dev/null)" ] || continue
             sha=$(sha256sum "$rom" 2>/dev/null | cut -d' ' -f1)
             case "$sha" in
                 "$ROM_SHA256_RED")    version=Red;    vid=red ;;

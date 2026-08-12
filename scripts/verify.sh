@@ -146,9 +146,9 @@ check $? "no ROM-derived generated data in the payload"
 GV="$PAK/game/src/core/GameVersion.lua"
 if [ -f "$GV" ]; then
     missing=
-    for m in $(sed -n 's/.*manifest = "\([^"]*\)".*/\1/p' "$GV"); do
+    while IFS= read -r m; do
         [ -f "$PAK/game/$m" ] || missing="$missing $m"
-    done
+    done < <(sed -n 's/.*manifest = "\([^"]*\)".*/\1/p' "$GV")
     [ -z "$missing" ]
     check $? "every import manifest GameVersion.lua declares is shipped${missing:+ -- MISSING:$missing}"
 else

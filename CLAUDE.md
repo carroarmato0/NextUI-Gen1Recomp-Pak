@@ -155,7 +155,8 @@ the pak directory — a pak update would otherwise destroy them.
 - **The scan now repeats until all three versions are in, so it filters by size first.** Only files
   of exactly 1048576 bytes are hashed, which is what `findPendingRom` requires anyway
   (`#data == 1024 * 1024`). On a real 90-ROM card that is 20 files instead of 90. The device has no
-  `stat`, so the size comes from field 5 of `ls -l`.
+  `stat`, so the test is `find "$rom" -size 1048576c` — busybox reads the `c` suffix as exact bytes.
+  Parsing `ls -l` works too but trips shellcheck's SC2012, and `find` needs no suppression.
 - **The smoke test lives in the state dir, not a ROM folder.** With no launch argument, `launch.sh`
   discovers `$STATE/*.love` and runs it instead of the game. `verify-device.sh` pushes it, prompts,
   and removes it again — a forgotten one hides the game on every later launch.
