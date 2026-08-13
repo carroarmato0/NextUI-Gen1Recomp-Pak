@@ -100,14 +100,14 @@ EOF
   [ -n "${new_asset:-}" ] || fail "release $new_tag has no *rg34xxsp-stockos64-mod.zip asset"
   [ -n "${new_sha:-}" ] || fail "release $new_tag ships no sha256 digest for $new_asset"
 
-  # The .love asset of the SAME release, for Yellow's import manifest -- the
-  # rg34xxsp zip omits it. Repinned here rather than in a separate step because a
-  # manifest and the engine that reads it must come from one release.
+  # The .love asset of the SAME release: that is the game payload. Repinned here
+  # rather than in a separate step because the payload and the runtime it is built
+  # against must come from one release.
   read -r ym_asset ym_sha ym_size <<EOF
 $(jq -r '.assets[] | select(.name|test("\\.love$"))
          | [.name, (.digest // "" | sub("^sha256:";"")), (.size|tostring)] | @tsv' "$api")
 EOF
-  [ -n "${ym_asset:-}" ] || fail "release $new_tag has no .love asset (needed for Yellow's manifest)"
+  [ -n "${ym_asset:-}" ] || fail "release $new_tag has no .love asset (that is the game payload)"
   [ -n "${ym_sha:-}" ] || fail "release $new_tag ships no sha256 digest for $ym_asset"
 
   new_ver="${new_tag#v}"
@@ -117,8 +117,8 @@ EOF
      --arg yasset "$ym_asset" --arg ysha "$ym_sha" --argjson ysize "$ym_size" \
      '.gen1recomp.tag=$tag | .gen1recomp.version=$ver | .gen1recomp.asset=$asset
       | .gen1recomp.sha256=$sha | .gen1recomp.size=$size
-      | .yellow_manifest.asset=$yasset | .yellow_manifest.sha256=$ysha
-      | .yellow_manifest.size=$ysize' "$LOCK" > "$tmp"
+      | .game_payload.asset=$yasset | .game_payload.sha256=$ysha
+      | .game_payload.size=$ysize' "$LOCK" > "$tmp"
   mv "$tmp" "$LOCK"
   say "upstream.lock now pins $new_tag ($new_asset, $ym_asset)"
 fi
@@ -128,9 +128,8 @@ VERSION="$(jqlock '.gen1recomp.version')"
 ASSET="$(jqlock '.gen1recomp.asset')"
 ASSET_SHA="$(jqlock '.gen1recomp.sha256')"
 REPO="$(jqlock '.gen1recomp.repo')"
-LOVE_ASSET="$(jqlock '.yellow_manifest.asset')"
-LOVE_ASSET_SHA="$(jqlock '.yellow_manifest.sha256')"
-YELLOW_MEMBER="$(jqlock '.yellow_manifest.member')"
+GAME_ASSET="$(jqlock '.game_payload.asset')"
+GAME_ASSET_SHA="$(jqlock '.game_payload.sha256')"
 
 # An explicit --tag cannot be hash-checked against the lock, so it is a
 # developer escape hatch only -- never a release path.
@@ -142,11 +141,11 @@ if [ -n "$WANT_TAG" ] && [ "$WANT_TAG" != "$(jqlock '.gen1recomp.tag')" ]; then
     "https://api.github.com/repos/$REPO/releases/tags/$WANT_TAG" \
     | jq -r '.assets[]|select(.name|test("rg34xxsp-stockos64-mod\\.zip$")).name')")"
   [ -n "$ASSET" ] || fail "no rg34xxsp asset on tag $WANT_TAG"
-  LOVE_ASSET_SHA=""
-  LOVE_ASSET="$(basename "$(curl -fsL --connect-timeout 20 --max-time 120 \
+  GAME_ASSET_SHA=""
+  GAME_ASSET="$(basename "$(curl -fsL --connect-timeout 20 --max-time 120 \
     "https://api.github.com/repos/$REPO/releases/tags/$WANT_TAG" \
     | jq -r '.assets[]|select(.name|test("\\.love$")).name')")"
-  [ -n "$LOVE_ASSET" ] || fail "no .love asset on tag $WANT_TAG"
+  [ -n "$GAME_ASSET" ] || fail "no .love asset on tag $WANT_TAG"
 fi
 
 # ------------------------------------------------------------------- downloads
@@ -154,12 +153,11 @@ PORT_ZIP="$CACHE/$ASSET"
 fetch "https://github.com/$REPO/releases/download/$TAG/$ASSET" \
       "$PORT_ZIP" "$ASSET_SHA" "Gen1Recomp $VERSION port ($((  $(jqlock '.gen1recomp.size') / 1024 / 1024 )) MB)"
 
-# The port zip ships Red's and Blue's import manifests but not Yellow's, so a
-# Yellow dump fails at RomImporter.lua with "ROM import metadata is missing".
-# Take that one member from the same release's .love, which does carry it.
-LOVE_ZIP="$CACHE/$LOVE_ASSET"
-fetch "https://github.com/$REPO/releases/download/$TAG/$LOVE_ASSET" \
-      "$LOVE_ZIP" "$LOVE_ASSET_SHA" "Gen1Recomp $VERSION .love (for $YELLOW_MEMBER)"
+# The game payload. Upstream's .love, not the port zip's lovegame/ -- see
+# upstream.lock game_payload for why the port zip cannot be trusted for this.
+GAME_LOVE="$CACHE/$GAME_ASSET"
+fetch "https://github.com/$REPO/releases/download/$TAG/$GAME_ASSET" \
+      "$GAME_LOVE" "$GAME_ASSET_SHA" "Gen1Recomp $VERSION game payload (.love)"
 
 # CA bundle. The device has no certificate store whatsoever, so without this every
 # HTTPS call the engine makes (mod index, update checks) dies with curl exit 60.
@@ -195,7 +193,10 @@ mkdir -p "$WORK"
 unzip -q "$PORT_ZIP" -d "$WORK" || fail "could not unpack $ASSET"
 
 SRC="$WORK/gen1recomp"
-[ -d "$SRC/lovegame" ] || fail "unexpected upstream layout: $SRC/lovegame is missing.
+# Only the runtime and the LOVE licence are taken from here; the game comes from
+# the .love. Assert what we actually read, so a layout change fails loudly.
+[ -d "$SRC/bin" ] && [ -d "$SRC/libs.aarch64" ] || fail "unexpected upstream layout: \
+$SRC/bin or $SRC/libs.aarch64 is missing.
 The RG34XXSP port structure changed; build.sh needs updating."
 
 # Runtime: taken from the port zip rather than fetched separately from
@@ -219,26 +220,20 @@ Upstream changed its bundled LOVE runtime. Verify it on device, then update
 love_runtime.files in upstream.lock."
 done < <(jq -r '.love_runtime.files | to_entries[] | [.key, .value] | @tsv' "$LOCK")
 
-# Game payload.
-cp -R "$SRC/lovegame" "$PAK/game"
+# Game payload, straight out of upstream's .love. NOT the port zip's lovegame/:
+# that is a downstream repackaging and it is trimmed, having dropped Yellow's
+# import manifest in 0.1.77 and Gold's in 0.1.79 while still shipping an engine
+# that declares both. See upstream.lock game_payload.
+mkdir -p "$PAK/game"
+unzip -q -o "$GAME_LOVE" -d "$PAK/game" || fail "could not unpack $GAME_ASSET"
+[ -f "$PAK/game/main.lua" ] || fail "unexpected .love layout: no main.lua at the root of $GAME_ASSET"
 
 # portable.txt makes LOVE write beside main.lua -- i.e. inside the pak directory,
 # where the next pak update would delete every save. launch.sh points
-# XDG_DATA_HOME at .userdata/shared/Gen1Recomp instead, so this must go.
+# XDG_DATA_HOME at .userdata/shared/Gen1Recomp instead, so this must go. The .love
+# does not currently carry one (the port zip did), so this is defence in depth
+# against upstream adding it; verify.sh asserts the result independently.
 rm -f "$PAK/game/portable.txt"
-
-# Yellow's import manifest, from the .love (see the downloads section). Assert it
-# was actually absent first: if upstream starts shipping it in the port zip, this
-# whole detour should go, and silently overwriting theirs would hide that.
-if [ -e "$PAK/game/$YELLOW_MEMBER" ]; then
-  warn "the port zip now ships $YELLOW_MEMBER itself -- the .love detour can be dropped"
-else
-  unzip -q -o "$LOVE_ZIP" "$YELLOW_MEMBER" -d "$PAK/game" \
-    || fail "could not extract $YELLOW_MEMBER from $LOVE_ASSET"
-  [ -s "$PAK/game/$YELLOW_MEMBER" ] \
-    || fail "$YELLOW_MEMBER came out empty from $LOVE_ASSET"
-  say "added $YELLOW_MEMBER from $LOVE_ASSET"
-fi
 
 # Never ship ROM-derived data. Upstream already excludes it, so finding any here
 # means something changed and a human should look before we publish.

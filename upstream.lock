@@ -21,29 +21,29 @@
     "sha256": "01de7975e186cd495d88b54fd0a69bc767812be505526b66a9d4982cd924e697",
     "size": 5110563
   },
-  "yellow_manifest": {
+  "game_payload": {
     "_comment": [
-      "The rg34xxsp-stockos64-mod asset this pak is built from ships tools/rom_manifest.json",
-      "(Red) and tools/rom_manifest_blue.json but NOT tools/rom_manifest_yellow.json -- while",
-      "the engine in that same zip does know about Yellow (GameVersion.lua lists it with",
-      "exactly that manifest path). So a Yellow dump imports as far as RomImporter.lua:264 and",
-      "then dies with \"ROM import metadata is missing\". Reported on a Smart Pro S, 2026-08-12,",
-      "and confirmed to be an upstream omission, not a build.sh bug: the file is simply absent",
-      "from the zip. The .love asset of the SAME release carries it, so build.sh pulls that one",
-      "member across.",
+      "The GAME payload -- the Lua tree LOVE runs. Taken from the .love asset, which is",
+      "upstreams canonical build of it, NOT from the rg34xxsp-stockos64-mod zips lovegame/",
+      "directory. That zip is a downstream ports convenience bundle, and it is TRIMMED: it",
+      "dropped tools/rom_manifest_yellow.json in 0.1.77 and rom_manifest_gold.json in 0.1.79 --",
+      "both times shipping an engine that declares a version whose import data is absent, so",
+      "the import dies at RomImporter.lua with ROM import metadata is missing. Chasing that",
+      "file by file cost two releases; taking the whole payload from the .love ends the class",
+      "of bug and picks up new versions for free.",
       "",
-      "Only the archive is pinned. Its sha256 already determines every byte inside it, so a",
-      "second hash for the extracted member would add nothing but an update chore -- unlike",
-      "love_runtime above, where the per-file hashes exist to catch upstream swapping the LOVE",
-      "build out from under us. Both this pin and gen1recomp move together on --update: a",
-      "manifest from a different release than the engine that reads it is precisely the",
-      "mismatch this lock exists to prevent."
+      "Verified on 0.1.79: the .love is a strict superset of the zips lovegame/ -- all 451",
+      "shared files byte-identical, the .love adding only the two manifests, the zip adding",
+      "only portable.txt, which build.sh deletes anyway (it would make LOVE write inside the",
+      "pak directory, and a pak update would then eat every save).",
+      "",
+      "The RUNTIME still comes from the rg34xxsp zip -- see love_runtime. That is deliberate:",
+      "it is the exact LOVE build upstream tested this game version against, and it is",
+      "hash-pinned per file. Nothing here is compiled either way; the game is Lua."
     ],
     "asset": "gen1recomp-0.1.77.love",
     "sha256": "ba5dfb3067e05d0a289f5cdc74df1114d2f5093a2b9f972155e90e8d786aec90",
-    "size": 3070184,
-    "member": "tools/rom_manifest_yellow.json",
-    "install_path": "game/tools/rom_manifest_yellow.json"
+    "size": 3070184
   },
   "love_runtime": {
     "version": "11.5",

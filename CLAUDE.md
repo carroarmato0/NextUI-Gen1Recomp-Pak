@@ -10,8 +10,10 @@ arguments** — `verify.sh` fails if it reads `$1`.
 
 ## Critical constraints
 
-- **No compiler.** There is nothing to build. `scripts/build.sh` downloads one pinned upstream
-  release zip and rearranges it. Do not add a cross-compilation toolchain or a Docker build.
+- **No compiler.** There is nothing to build. The game is Lua, so upstream's `.love` already *is*
+  the from-source build; `scripts/build.sh` downloads two pinned upstream artifacts — the `.love`
+  for the game and the port zip for the LOVE runtime — and rearranges them. Do not add a
+  cross-compilation toolchain or a Docker build.
 - **`launch.sh` is POSIX `sh`, never bash.** `/bin/bash` on these cards can be a symlink PortMaster
   creates into its own vendored bin, so a `#!/bin/bash` shebang silently reintroduces the dependency
   this pak exists to avoid. `scripts/verify.sh` enforces this.
@@ -134,16 +136,21 @@ the pak directory — a pak update would otherwise destroy them.
   — a deliberate maintainer call, taken while the install base is small. The Emu pak under `Emus/`
   is only reported: deleting the ROM folder already removes the entry, so removing an entire
   installed pak would buy disk space and nothing else. Both are logged as `legacy` lines.
-- **Upstream's rg34xxsp asset omits Yellow's import manifest, so we fetch a second archive.**
-  The port zip ships `tools/rom_manifest.json` (Red) and `tools/rom_manifest_blue.json` but not
-  `tools/rom_manifest_yellow.json` — while the engine inside that same zip does declare Yellow
-  (`GameVersion.lua:46`). A Yellow dump therefore staged fine, passed the engine's SHA-1 check, and
-  then died at `RomImporter.lua:264` with *"ROM import metadata is missing"*. The `.love` asset of
-  the same release carries the file, so `build.sh` pins that archive too and lifts out the one
-  member (+1.1 MB; pak is 34 MB with the voxel mod). Both pins move together on `--update` —
-  a manifest from a different release than the engine reading it is the mismatch the lock exists to
-  prevent. `verify.sh` now asserts every manifest `GameVersion.lua` declares is on disk, and
-  `build.sh` warns instead of overwriting if upstream ever starts shipping Yellow's itself.
+- **The game payload comes from the `.love` asset; only the runtime comes from the port zip.**
+  `gen1recomp-<ver>.love` is upstream's canonical build of the Lua tree. The
+  `rg34xxsp-stockos64-mod.zip` is a *downstream port's* convenience bundle, and its `lovegame/` is
+  **trimmed**: it dropped `tools/rom_manifest_yellow.json` in 0.1.77 and `rom_manifest_gold.json` in
+  0.1.79, both times while shipping an engine that declares those versions — so an import reached
+  `RomImporter.lua:264` and died with *"ROM import metadata is missing"*. Chasing the missing file
+  per release cost two of them. Taking the whole payload from the `.love` ends the class of bug and
+  picks up new versions for free (verified: a `--tag v0.1.79` build ships Gold's manifest and passes
+  the contract check unaided). On 0.1.79 the `.love` is a strict superset of `lovegame/` — all 451
+  shared files byte-identical, the `.love` adding the manifests and `build-info.json`, the zip
+  adding only `portable.txt`, which we delete anyway. **There is nothing to compile**: the game is
+  Lua, so the `.love` *is* the from-source build. The port zip is still fetched, for the hash-pinned
+  LOVE runtime and `LICENSE.love2d.txt` only — that runtime is the exact build upstream tested this
+  game version against, which is worth keeping. `verify.sh` asserts every manifest
+  `GameVersion.lua` declares is on disk, so a future version cannot regress silently.
 - **The import gate is per-version, and must stay that way.** It was all-or-nothing through v0.2.0:
   any one staged dump or decoded cache skipped the whole scan permanently, so a player who imported
   Red and Blue and later added Yellow never got it — and the log said `already imported`, so it read

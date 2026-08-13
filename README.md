@@ -279,6 +279,8 @@ The runtime itself is known to work on this hardware class — the LÖVE 11.5 AR
 
 No compiler and no cross-toolchain. Everything is fetched from pinned, hash-verified upstream artifacts and rearranged.
 
+There is genuinely nothing to compile: Gen1Recomp is LÖVE 11.5 / LuaJIT, so the game is Lua and upstream's `.love` **is** the from-source build. That is where the game payload comes from. The RG34XXSP port zip is fetched only for the aarch64 LÖVE runtime — the exact build upstream tested this game version against — and its LÖVE licence file.
+
 ```sh
 scripts/build.sh                 # fetch + stage into build/Gen1Recomp.pak/
 scripts/build.sh --no-voxel      # skip the voxel mod (~19 MB of the 34 MB pak)
