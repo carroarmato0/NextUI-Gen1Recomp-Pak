@@ -76,9 +76,49 @@ jobs:
             echo "upstream_tag=$(jq -r .gen1recomp.tag upstream.lock)"
           } >> "$GITHUB_OUTPUT"
 
+      # MUST come before the checks below, not after. verify.sh asserts that
+      # pak.json's description names the upstream version in upstream.lock, and
+      # --refresh-lock has just moved that version -- so with this step after the
+      # checks, EVERY upstream move failed "description names the bundled
+      # Gen1Recomp version", tripped the contract-failure path and filed an issue
+      # blaming upstream for our own step ordering. The watcher could never
+      # complete a repin. First seen for real on 2026-08-12 (upstream 0.1.79),
+      # which is also the first time upstream moved since this workflow was written.
+      - name: Bump the pak patch version and changelog
+        id: bump
+        env:
+          UPSTREAM: ${{ steps.build.outputs.upstream_version }}
+        run: |
+          set -euo pipefail
+          # The pak's version is independent of upstream's, so a new upstream build
+          # is a patch bump here. The upstream version is recorded in the changelog
+          # and the description so a user can tell what they actually have.
+          cur=$(jq -r .version pak.json)
+          base=${cur#v}
+          major=${base%%.*}; rest=${base#*.}
+          minor=${rest%%.*}; patch=${rest#*.}
+          new="v$major.$minor.$((patch+1))"
+          echo "new_version=$new" >> "$GITHUB_OUTPUT"
+
+          # --indent 4, matching the file. jq defaults to compact with -c, which
+          # would collapse pak.json onto one line and make the bot's own PR diff
+          # unreviewable -- the changelog entries are long prose.
+          jq --indent 4 --arg v "$new" --arg up "$UPSTREAM" '
+            .version = $v
+            | .description = (.description
+                | sub("Gen1Recomp [0-9]+\\.[0-9]+\\.[0-9]+"; "Gen1Recomp " + $up))
+            | .changelog = ({ ($v): ["Updated to Gen1Recomp " + $up + "."] } + .changelog)
+          ' pak.json > pak.json.tmp
+          mv pak.json.tmp pak.json
+          echo "pak.json now at $new (Gen1Recomp $UPSTREAM)"
+
       # A contract failure is the whole point of this workflow: it means upstream
       # changed something launch.sh depends on. Surface it as an issue instead of
-      # quietly producing a broken draft.
+      # quietly producing a broken draft. This now runs against a pak.json that
+      # has already been bumped, so a failure here is genuinely upstream's.
+      # (The bump step used to re-run verify.sh --skip-lint itself; it no longer
+      # needs to, since the full check runs immediately after and routes a failure
+      # through the issue path instead of dying with a bare non-zero exit.)
       - name: Static and contract checks
         id: verify
         continue-on-error: true
@@ -99,32 +139,6 @@ jobs:
 
       - name: Package
         run: scripts/release.sh --skip-verify
-
-      - name: Bump the pak patch version and changelog
-        id: bump
-        env:
-          UPSTREAM: ${{ steps.build.outputs.upstream_version }}
-        run: |
-          set -euo pipefail
-          # The pak's version is independent of upstream's, so a new upstream build
-          # is a patch bump here. The upstream version is recorded in the changelog
-          # and the description so a user can tell what they actually have.
-          cur=$(jq -r .version pak.json)
-          base=${cur#v}
-          major=${base%%.*}; rest=${base#*.}
-          minor=${rest%%.*}; patch=${rest#*.}
-          new="v$major.$minor.$((patch+1))"
-          echo "new_version=$new" >> "$GITHUB_OUTPUT"
-
-          jq -c --arg v "$new" --arg up "$UPSTREAM" '
-            .version = $v
-            | .description = (.description
-                | sub("Gen1Recomp [0-9]+\\.[0-9]+\\.[0-9]+"; "Gen1Recomp " + $up))
-            | .changelog = ({ ($v): ["Updated to Gen1Recomp " + $up + "."] } + .changelog)
-          ' pak.json > pak.json.tmp
-          mv pak.json.tmp pak.json
-          scripts/verify.sh --skip-lint
-          echo "pak.json now at $new (Gen1Recomp $UPSTREAM)"
 
       - name: Open a PR with the new pins
         id: pr
