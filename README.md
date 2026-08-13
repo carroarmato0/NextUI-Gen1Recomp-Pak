@@ -1,6 +1,6 @@
 # Gen1Recomp for NextUI
 
-**Play Pokémon Red, Blue and Yellow natively on the TrimUI Brick, Smart Pro and Smart Pro S** — no emulator, and optionally with a 3D voxel overworld.
+**Play Pokémon Red, Blue and Yellow natively on the TrimUI Brick, Smart Pro and Smart Pro S** — no emulator, and optionally with a 3D voxel overworld. **Gold** is included too, as an upstream **beta**.
 
 ![A shop interior from Pokémon Blue rendered as 3D voxels — shelves, an attendant and two player sprites, all in the original monochrome palette](docs/screenshots/main.png)
 
@@ -26,7 +26,7 @@ Credit for the game itself belongs entirely upstream. This repository is packagi
 ## Requirements
 
 - **NextUI** on a TrimUI device — `tg5040` (Brick, Smart Pro, Brick Pro) or `tg5050` (Smart Pro S)
-- **Your own US Red, Blue or Yellow cartridge dump.** Only the three canonical 1 MiB US ROMs are accepted; the engine verifies by SHA-1 and refuses anything else
+- **Your own US Red, Blue, Yellow or Gold cartridge dump.** Only the canonical US ROMs are accepted — the three 1 MiB Gen 1 carts and the 2 MiB Gold cart; the engine verifies by SHA-1 and refuses anything else
 - ~34 MB of card space, or ~15 MB if you build without the 3D mod
 - For the 3D voxel mod: [Swap.pak](https://github.com/carroarmato0/NextUI-Swap-Pak). See [3D voxel mod](#3d-voxel-mod)
 
@@ -75,13 +75,14 @@ It hashes the `.gb`/`.gbc` files it finds and copies every version that matches 
 
 The scan tracks each version separately, so **you can add a version later**: import Red today, drop a Yellow dump on the card next month, and the next launch picks it up. A version already imported is left alone, and once all three are in the scan stops running altogether. Only files of exactly 1 MiB are hashed — the engine accepts no other size — so a large homebrew library costs little.
 
-Accepted dumps (1 MiB US cartridges only). Check yours on the device with `sha256sum <file>`:
+Accepted dumps (US cartridges only). Check yours on the device with `sha256sum <file>`:
 
 | Version | SHA-256 |
 |---|---|
 | Red | `5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b` |
 | Blue | `2a951313c2640e8c2cb21f25d1db019ae6245d9c7121f754fa61afd7bee6452d` |
 | Yellow | `8cbaa499397e4f1a679c992ea9382a2dd7942ab398b48c19829c2d9529de47bf` |
+| Gold (beta) | `fb0016d27b1e5374e1ec9fcad60e6628d8646103b5313ca683417f52b97e7e4e` |
 
 SHA-256 rather than the SHA-1 upstream publishes, because these handhelds ship `sha256sum` but not `sha1sum`. The engine still runs its own SHA-1 verification when it imports, so a dump has to satisfy both.
 
@@ -230,7 +231,8 @@ Stated plainly, because these are structural rather than bugs, and knowing them 
 
 ### Scope
 
-- **Only canonical US Red, Blue and Yellow are accepted.** Other regions, revisions and ROM hacks are refused by the engine, not by this pak.
+- **Only canonical US Red, Blue, Yellow and Gold are accepted.** Other regions, revisions and ROM hacks are refused by the engine, not by this pak.
+- **Gold is an upstream beta.** The launcher labels it `Gold (Beta)`. It is Generation 2 and still being worked on upstream — expect rough edges that are not this pak's to fix. Red, Blue and Yellow are unaffected by it.
 - **Two of four devices are untested.** The Smart Pro and Brick Pro share a platform with the Brick and are likely fine, but nobody has run them. See [Tested on](#tested-on).
 - **Updating from v0.1.0 deletes `Roms/Gen1Recomp (Gen1Recomp)/`, box art included.** That folder was entirely this project's doing and leaves a stale duplicate entry otherwise. The old pak under `Emus/` is left for you to remove. See [Upgrading from v0.1.0](#upgrading-from-v010).
 - **A `.love` file dropped in the state directory will run instead of the game**, but that is a diagnostics hook for the smoke test, not a feature. There is no per-game save isolation or controller profile behind it; this pak is Gen1Recomp-specific. Delete it to get the game back.
@@ -268,7 +270,7 @@ Honest status. An untested device is listed as untested, not assumed to work.
 
 | Device | Platform | Screen | Status |
 |---|---|---|---|
-| TrimUI Brick | `tg5040` | 1024×768 | **Runs.** GLES 3 context, ROM import, 2D game, voxel mod, controller mapping (A confirms) and audio all verified on hardware. Re-verified as a Tool pak on v0.2.0: launches from Tools, imports both Red and Blue out of an 89-ROM library, removes a v0.1.0 ROM folder without touching any of 1061 save files, and returns cleanly to the frontend |
+| TrimUI Brick | `tg5040` | 1024×768 | **Runs.** GLES 3 context, ROM import, 2D game, voxel mod, controller mapping (A confirms) and audio all verified on hardware. Re-verified as a Tool pak on v0.2.0: launches from Tools, imports both Red and Blue out of an 89-ROM library, removes a v0.1.0 ROM folder without touching any of 1061 save files, and returns cleanly to the frontend. On v0.2.2, verified that the bundled libmpg123 fallback is correctly *not* used where the firmware ships its own. **Gold: partly verified.** On Gen1Recomp 0.1.79 a Gold dump placed in the save directory by hand imported and decoded to a complete cache in about a minute, with memory never a concern (~677 MB free, LÖVE RSS ~71 MB). The v0.3.0 *automatic* import of Gold — the ROM scan finding a 2 MiB dump in a Game Boy Color folder — has **not** been run on hardware, nor has Gen1Recomp 0.1.81 itself |
 | TrimUI Smart Pro | `tg5040` | 1280×720 | Not tested — same platform as the Brick, so likely fine, but unverified |
 | TrimUI Brick Pro | `tg5040` | 1024×768 | Not tested |
 | TrimUI Smart Pro S | `tg5050` | 1280×720 | **Runs.** Profiled with the voxel mod; needs swap. Audio verified. Yellow import verified end to end on hardware: a dump added after Red and Blue were already imported is picked up on the next launch and decoded (cache complete in ~50 s) |

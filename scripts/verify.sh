@@ -278,20 +278,20 @@ grep -rq "$want_gbcfx" "$PAK/game/src/" 2>/dev/null
 check $? "$want_gbcfx is still honoured by the engine"
 
 sha_ok=0
-for v in red blue yellow; do
+for v in $(jq -r '.contracts.rom_sha1|keys_unsorted[]' "$LOCK"); do
     h=$(jqlock ".contracts.rom_sha1.$v")
     grep -rqi "$h" "$PAK/game/" 2>/dev/null || { bad "ROM SHA-1 for $v not found upstream ($h)"; sha_ok=1; }
 done
-check $sha_ok "all three canonical ROM SHA-1s still appear in the payload"
+check $sha_ok "every canonical ROM SHA-1 in the lock still appears in the payload"
 
 # launch.sh matches on SHA-256, not SHA-1, because these devices have no sha1sum.
 # If a constant drifts from the lock, the scan silently imports nothing.
 ls_ok=0
-for v in red blue yellow; do
+for v in $(jq -r '.contracts.rom_sha256|keys_unsorted[]' "$LOCK"); do
     h=$(jqlock ".contracts.rom_sha256.$v")
     grep -q "$h" "$ROOT/launch.sh" || { bad "launch.sh is missing the $v SHA-256"; ls_ok=1; }
 done
-check $ls_ok "launch.sh carries the same three ROM SHA-256s as upstream.lock"
+check $ls_ok "launch.sh carries the same ROM SHA-256s as upstream.lock"
 
 # Regression guard for a bug that only a device could find: launch.sh matched ROMs
 # with sha1sum, which does not exist on these handhelds. It emitted nothing,
@@ -345,6 +345,16 @@ code_only | matches 'SDL_VIDEODRIVER' && bad "launch.sh sets SDL_VIDEODRIVER -- 
 # received the selected ROM-folder entry; anything left reading it would now be
 # silently empty rather than obviously broken.
 code_only | matches '\$\{?[1@*]' && bad "launch.sh still reads a launch argument -- a Tool pak is invoked with none" || ok "launch.sh takes no launch argument"
+
+# The scan filters candidates by size BEFORE hashing, so a size the engine
+# accepts but the filter does not is invisible: the dump is skipped before its
+# hash is ever computed and nothing is logged. That is exactly how Gold went
+# missing -- Gen 2 carts are 2 MiB and the filter was 1 MiB only. Keep the two
+# in step with RomImporter.isAcceptedRomSize.
+for want in 1048576 2097152; do
+    code_only | matches "size ${want}c"
+    check $? "launch.sh's ROM scan accepts ${want}-byte dumps (engine accepts them)"
+done
 
 sh -n "$ROOT/launch.sh" 2>/dev/null
 check $? "launch.sh parses"

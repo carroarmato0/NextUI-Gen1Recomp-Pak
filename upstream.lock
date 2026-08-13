@@ -15,11 +15,11 @@
   ],
   "gen1recomp": {
     "repo": "bryanthaboi/gen1recomp",
-    "tag": "v0.1.77",
-    "version": "0.1.77",
-    "asset": "gen1recomp-0.1.77-rg34xxsp-stockos64-mod.zip",
-    "sha256": "01de7975e186cd495d88b54fd0a69bc767812be505526b66a9d4982cd924e697",
-    "size": 5110563
+    "tag": "v0.1.81",
+    "version": "0.1.81",
+    "asset": "gen1recomp-0.1.81-rg34xxsp-stockos64-mod.zip",
+    "sha256": "bffe57c0d1c4a43689b2b6f089cc1f960a01372e63f3fd60a17d32558f581d5c",
+    "size": 6627666
   },
   "game_payload": {
     "_comment": [
@@ -41,9 +41,9 @@
       "it is the exact LOVE build upstream tested this game version against, and it is",
       "hash-pinned per file. Nothing here is compiled either way; the game is Lua."
     ],
-    "asset": "gen1recomp-0.1.77.love",
-    "sha256": "ba5dfb3067e05d0a289f5cdc74df1114d2f5093a2b9f972155e90e8d786aec90",
-    "size": 3070184
+    "asset": "gen1recomp-0.1.81.love",
+    "sha256": "c493660ac9f472d170468741089e7894a470dfcee85e49bca8d59270273108cb",
+    "size": 4442669
   },
   "love_runtime": {
     "version": "11.5",
@@ -133,20 +133,30 @@
     "rom_sha1": {
       "red": "ea9bcae617fdf159b045185467ae58b2e4a48b9a",
       "blue": "d7037c83e1ae5b39bde3c30787637ba1d4c48ce2",
-      "yellow": "cc7d03262ebfaf2f06772c1a480c7d9d5f4a38e1"
+      "yellow": "cc7d03262ebfaf2f06772c1a480c7d9d5f4a38e1",
+      "gold": "d8b8a3600a465308c9953dfa04f0081c05bdcb94"
     },
     "_rom_sha256_comment": [
       "What launch.sh actually matches on. These devices ship sha256sum and md5sum",
       "but NO sha1sum (verified on a Trimui Brick, 2026-08-11), so the original",
       "SHA-1 scan matched nothing at all -- silently. Red and Blue were confirmed",
-      "against real dumps on-device; Yellow follows by elimination from the same",
-      "published set. A wrong value fails safe: the engine's own SHA-1 check still",
-      "gates the import, so the player lands on Choose ROM, not on bad data."
+      "against real dumps on-device; Yellow followed by elimination from the same",
+      "published set and was later confirmed by a real import. Gold was confirmed",
+      "the same way on a Brick, 2026-08-13: the dump's SHA-1 matches GameVersion's",
+      "gold row and the engine decoded it to gold/rom-cache.complete.",
+      "A wrong value fails safe: the engine's own SHA-1 check still gates the",
+      "import, so the player lands on Choose ROM, not on bad data.",
+      "",
+      "GOLD IS 2 MiB, not 1. launch.sh filters candidates by size before hashing, and",
+      "a 1 MiB-only filter skipped every Gold dump before its hash was computed --",
+      "reporting nothing wrong. The engine accepts both sizes",
+      "(RomImporter.isAcceptedRomSize); the filter must accept both too."
     ],
     "rom_sha256": {
       "red": "5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b",
       "blue": "2a951313c2640e8c2cb21f25d1db019ae6245d9c7121f754fa61afd7bee6452d",
-      "yellow": "8cbaa499397e4f1a679c992ea9382a2dd7942ab398b48c19829c2d9529de47bf"
+      "yellow": "8cbaa499397e4f1a679c992ea9382a2dd7942ab398b48c19829c2d9529de47bf",
+      "gold": "fb0016d27b1e5374e1ec9fcad60e6628d8646103b5313ca683417f52b97e7e4e"
     },
     "_device_tools_comment": [
       "Commands confirmed ABSENT on a Trimui Brick and a Smart Pro S running NextUI",

@@ -284,14 +284,21 @@ echo
 echo "stops scanning only when there is genuinely nothing left to import"
 SB="$(make_sandbox)"
 BR="$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d"
-mkdir -p "$BR/red/data/generated" "$BR/blue/data/generated" "$BR/yellow"
+# Every version launch.sh knows about, read from launch.sh itself rather than
+# listed here: this test is about "all of them", and hard-coding three is what
+# made the scan stop before it ever looked for Gold.
+ALL_VERSIONS="$(sed -n 's/^VERSIONS="\(.*\)"/\1/p' "$ROOT/launch.sh")"
+# shellcheck disable=SC2086  # deliberate word split: VERSIONS is a space-separated list
+for v in $ALL_VERSIONS; do
+    mkdir -p "$BR/$v/data/generated"
+done
 # Either marker counts: the engine writes rom-cache.complete beside the
 # generated data (RomImporter.lua MARKER_PATH, CacheFs.lua:425).
-touch "$BR/yellow/rom-cache.complete"
+rm -rf "$BR/yellow/data"; mkdir -p "$BR/yellow"; touch "$BR/yellow/rom-cache.complete"
 head -c 1048576 /dev/urandom > "$SB/SDCARD/Roms/Game Boy (GB)/cart.gb"
 run_launch "$SB"
-log_of "$SB" | grep -q "all three versions"
-check $? "skips the scan once all three versions are imported"
+log_of "$SB" | grep -q "every version already imported"
+check $? "skips the scan once every version is imported"
 log_of "$SB" | grep -q "looking in"
 if [ $? -eq 0 ]; then bad "hashed ROM folders with nothing left to import"
 else ok "hashes nothing when there is nothing left to import"; fi
@@ -313,6 +320,36 @@ sed -i "s/2a951313c2640e8c2cb21f25d1db019ae6245d9c7121f754fa61afd7bee6452d/$H_SH
 run_launch "$SB"
 [ ! -f "$BR/homebrew.gb" ]
 check $? "does not stage a file of the wrong size"
+rm -rf "$SB"
+
+# --------------------------------------------------------------------------
+# Gen 2 carts are 2 MiB, and the size pre-filter used to accept only 1 MiB. A
+# Gold dump was therefore skipped before its hash was ever computed, so the scan
+# found nothing and reported nothing wrong. Confirmed on a Brick, 2026-08-13:
+# the log said "all three versions already imported" with a Gold dump sitting in
+# the GBC folder. The engine accepts both sizes (RomImporter.isAcceptedRomSize).
+echo
+echo "imports a 2 MiB Gen 2 dump (Gold), not just 1 MiB Gen 1 ones"
+SB="$(make_sandbox)"
+BR="$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d"
+GBC="$SB/SDCARD/Roms/Game Boy Color (GBC)"
+head -c 2097152 /dev/urandom > "$GBC/Pokemon - Gold Version.gbc"
+G_SHA="$(sha256sum "$GBC/Pokemon - Gold Version.gbc" | cut -d' ' -f1)"
+sed -i "s/fb0016d27b1e5374e1ec9fcad60e6628d8646103b5313ca683417f52b97e7e4e/$G_SHA/" "$SB/pak/launch.sh"
+run_launch "$SB"
+[ -f "$BR/Pokemon - Gold Version.gbc" ]
+check $? "stages a 2 MiB Gold dump"
+log_of "$SB" | grep -q "matched Gold"
+check $? "identifies it as Gold"
+# And the scan must not declare itself finished while Gold is still missing.
+rm -rf "$SB"
+SB="$(make_sandbox)"
+BR="$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d"
+mkdir -p "$BR/red/data/generated" "$BR/blue/data/generated" "$BR/yellow/data/generated"
+run_launch "$SB"
+log_of "$SB" | grep -q "every version already imported"
+if [ $? -eq 0 ]; then bad "called it done with Gold still not imported"
+else ok "keeps scanning while a known version is still missing"; fi
 rm -rf "$SB"
 
 # --------------------------------------------------------------------------

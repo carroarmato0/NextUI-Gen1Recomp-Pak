@@ -402,6 +402,14 @@ SAVEROOT="$STATE/love/pokemon-love2d"
 ROM_SHA256_RED=5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b
 ROM_SHA256_BLUE=2a951313c2640e8c2cb21f25d1db019ae6245d9c7121f754fa61afd7bee6452d
 ROM_SHA256_YELLOW=8cbaa499397e4f1a679c992ea9382a2dd7942ab398b48c19829c2d9529de47bf
+# Gold is Gen 2 and therefore 2 MiB, not 1 -- see the size filter below, which is
+# the reason a Gold dump was invisible to this scan when Gold first appeared.
+ROM_SHA256_GOLD=fb0016d27b1e5374e1ec9fcad60e6628d8646103b5313ca683417f52b97e7e4e
+
+# Every version the engine knows about, in GameVersion.ORDER. Adding one here is
+# the whole change needed: the set below, the count that ends the scan and the
+# match list are all driven off it.
+VERSIONS="red blue yellow gold"
 
 # Which versions the engine already has, as a space-delimited set. Its decoded
 # cache lives in a per-version subfolder -- red/, blue/, yellow/ (GameVersion.lua
@@ -415,35 +423,38 @@ ROM_SHA256_YELLOW=8cbaa499397e4f1a679c992ea9382a2dd7942ab398b48c19829c2d9529de47
 # scan that would have matched it never ran again, and the log said "already
 # imported" as though nothing were wrong. Found on a Smart Pro S, 2026-08-12.
 HAVE=" "
-for v in red blue yellow; do
+want_count=0
+for v in $VERSIONS; do
+    want_count=$((want_count + 1))
     if [ -d "$SAVEROOT/$v/data/generated" ] || [ -f "$SAVEROOT/$v/rom-cache.complete" ]; then
         HAVE="$HAVE$v "
     fi
 done
 # Staged but not yet decoded. Hashing is the only way to tell which version a
-# staged dump is, and it is cheap here: three files at most, 1 MiB each.
+# staged dump is, and it is cheap here: a handful of files at most.
 for f in "$SAVEROOT"/*.gb "$SAVEROOT"/*.gbc; do
     [ -f "$f" ] || continue
     case "$(sha256sum "$f" 2>/dev/null | cut -d' ' -f1)" in
         "$ROM_SHA256_RED")    HAVE="$HAVE""red " ;;
         "$ROM_SHA256_BLUE")   HAVE="$HAVE""blue " ;;
         "$ROM_SHA256_YELLOW") HAVE="$HAVE""yellow " ;;
+        "$ROM_SHA256_GOLD")   HAVE="$HAVE""gold " ;;
     esac
 done
 have_count=0
-for v in red blue yellow; do
+for v in $VERSIONS; do
     case "$HAVE" in *" $v "*) have_count=$((have_count + 1)) ;; esac
 done
 
-if [ "$have_count" -eq 3 ]; then
-    echo "rom       all three versions already imported; skipping the scan"
+if [ "$have_count" -eq "$want_count" ]; then
+    echo "rom       every version already imported; skipping the scan"
 elif ! command -v sha256sum >/dev/null 2>&1; then
     # Degrade rather than guess. Copying an unverified 1 MiB file into the import
     # folder would just make the engine reject it later with less explanation.
     echo "rom       sha256sum unavailable on this device; skipping the scan."
     echo "rom       Use the game's Choose ROM screen instead."
 else
-    echo "rom       scanning for US Red/Blue/Yellow dumps"
+    echo "rom       scanning for US Red/Blue/Yellow/Gold dumps"
     ROMS="${ROMS_PATH:-${SDCARD_PATH:-/mnt/SDCARD}/Roms}"
     imported=0
     scanned=0
@@ -475,17 +486,35 @@ else
             # Skip AppleDouble junk: a macOS "._cart.gb" ends in .gb and would
             # otherwise be hashed pointlessly.
             case "$(basename "$rom")" in ._*) continue ;; esac
-            # The engine accepts an exact 1 MiB image and nothing else
-            # (findPendingRom checks #data == 1024*1024), so no other size can be
-            # one of the three. This reads no file contents, and it takes the
-            # hashing on a real card from 90 files to 20 -- which matters, because
-            # the scan repeats on every launch until all three are in.
+            # The engine accepts exactly two sizes and nothing else: 1 MiB for the
+            # Gen 1 carts and 2 MiB for Gen 2 (RomImporter.isAcceptedRomSize). So
+            # no other size can be any known version. This reads no file contents,
+            # and it keeps the hashing down -- on a real 90-ROM card it leaves
+            # about 30 files, which matters because the scan repeats on every
+            # launch until every version is in.
+            #
+            # 2 MiB is NOT optional: it is the whole reason a Gold dump was
+            # invisible here when Gold first shipped. A 1 MiB-only filter skipped
+            # it before its hash was ever computed, so the scan reported nothing
+            # wrong. Keep this in step with the engine.
+            #
             # find rather than stat(1), which the device does not ship: busybox
-            # find reads the c suffix as exact bytes (confirmed on a Smart Pro S,
-            # including on a name full of spaces and brackets).
-            [ -n "$(find "$rom" -size 1048576c 2>/dev/null)" ] || continue
+            # find reads the c suffix as exact bytes (confirmed on a Smart Pro S
+            # and a Brick, including on a name full of spaces and brackets).
+            #
+            # Two separate invocations rather than one `-size A -o -size B`. The
+            # single-size form is what has actually been run on device; the -o
+            # form relies on find applying its implicit -print across an OR, which
+            # is true of GNU find but has not been checked on this busybox. This
+            # project has been bitten three times by assuming a tool behaves as it
+            # does on a desktop (sha1sum, stat, setsid), and the failure mode here
+            # is the silent one: every dump skipped, nothing logged.
+            [ -n "$(find "$rom" -size 1048576c 2>/dev/null)" ] \
+                || [ -n "$(find "$rom" -size 2097152c 2>/dev/null)" ] \
+                || continue
             sha=$(sha256sum "$rom" 2>/dev/null | cut -d' ' -f1)
             case "$sha" in
+                "$ROM_SHA256_GOLD")   version=Gold;   vid=gold ;;
                 "$ROM_SHA256_RED")    version=Red;    vid=red ;;
                 "$ROM_SHA256_BLUE")   version=Blue;   vid=blue ;;
                 "$ROM_SHA256_YELLOW") version=Yellow; vid=yellow ;;
@@ -521,10 +550,11 @@ else
         fi
         echo "rom       no match found. Starting the built-in launcher so you can"
         echo "rom       use its Choose ROM screen."
-        echo "rom       Accepted dumps (1 MiB US cartridges only), by SHA-256:"
+        echo "rom       Accepted dumps (US cartridges only), by SHA-256:"
         echo "rom         Red    $ROM_SHA256_RED"
         echo "rom         Blue   $ROM_SHA256_BLUE"
         echo "rom         Yellow $ROM_SHA256_YELLOW"
+        echo "rom         Gold   $ROM_SHA256_GOLD"
         echo "rom       Check yours on the device with: sha256sum <file>"
     fi
 fi

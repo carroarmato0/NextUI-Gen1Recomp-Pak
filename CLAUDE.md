@@ -180,7 +180,17 @@ the pak directory — a pak update would otherwise destroy them.
   at the save root, and only skips the scan when all three are in. The old `$SAVEROOT/data/generated`
   check was also simply the wrong path — the engine writes per-version prefixes
   (`GameVersion.lua` `cachePrefix`), so that branch never once fired.
-- **The scan now repeats until all three versions are in, so it filters by size first.** Only files
+- **Gold is Gen 2 and therefore 2 MiB, and that is what hid it.** The scan filters by size *before*
+  hashing, and the filter was 1 MiB only — so a Gold dump was skipped before its hash was ever
+  computed and the log cheerfully reported "all three versions already imported". Two more
+  hard-coded threes compounded it: the version list and the count that ends the scan. All three now
+  derive from `VERSIONS="red blue yellow gold"` in `launch.sh`, and `verify.sh` asserts the scan
+  accepts both 1048576 and 2097152 bytes, matching `RomImporter.isAcceptedRomSize`. Adding Silver
+  later should mean one entry in `VERSIONS`, one SHA-256, and one lock entry — nothing else.
+  The size test is **two separate `find` calls**, not `-size A -o -size B`: the single-size form is
+  what has been run on device, and the `-o` form depends on find applying its implicit `-print`
+  across an OR, which is unverified on this busybox. The failure mode would be silent.
+- **The scan now repeats until all versions are in, so it filters by size first.** Only files
   of exactly 1048576 bytes are hashed, which is what `findPendingRom` requires anyway
   (`#data == 1024 * 1024`). On a real 90-ROM card that is 20 files instead of 90. The device has no
   `stat`, so the test is `find "$rom" -size 1048576c` — busybox reads the `c` suffix as exact bytes.
