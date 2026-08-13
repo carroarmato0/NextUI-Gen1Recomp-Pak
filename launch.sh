@@ -54,14 +54,32 @@ export XDG_CONFIG_HOME="$STATE"
 echo "state     $STATE"
 
 # --- shared libraries ------------------------------------------------------
-# love.aarch64 needs only libc plus the bundled liblove/libluajit. liblove's
-# remaining dependencies come from the firmware: SDL2 and mpg123 from
-# /usr/trimui/lib, and freetype, openal, theoradec, vorbisfile, z and stdc++
-# from /usr/lib. Nothing else has to be shipped.
+# love.aarch64 needs only libc plus the bundled liblove/libluajit. liblove in
+# turn pulls in more: libs.aarch64/ ships liblove, libluajit, libmodplug and
+# libogg, and the firmware supplies SDL2 from /usr/trimui/lib and freetype,
+# openal, theoradec, vorbisfile, z and stdc++ from /usr/lib.
 #
-# Keep the original path: system helpers spawned below load libmsettings.so from
+# The one exception is libmpg123.so.0. liblove NEEDs it and the LOVE port zip
+# does not ship it, so on a firmware image that lacks one, love.aarch64 dies at
+# load with "libmpg123.so.0: cannot open shared object file" -- a black screen,
+# the log ending right after "=== love output follows ===". It is the only such
+# gap (the loader names it, not the entries before it, which all resolve), so the
+# pak bundles exactly it in bin/lib/ and that directory is added below.
+#
+# Whether the firmware has one VARIES BY IMAGE, so bin/lib goes LAST, after
+# /usr/trimui/lib: the firmware's copy wins where it exists and ours is only a
+# fallback. Measured on a Trimui Brick, 2026-08-13 -- that firmware ships
+# libmpg123.so.0.44.12 (Nov 2025) while the bundled build is 0.44.8 (2018), so
+# putting bin/lib first would silently downgrade the decoder on every device that
+# already works. Confirmed with LD_DEBUG=libs both ways: bin/lib first loads ours,
+# bin/lib last loads the firmware's, and with the firmware copy absent the loader
+# falls through to ours and LOVE starts either way.
+#
+# bin/lib holds only libmpg123, so nothing else is shadowed -- in particular the
+# vendor SDL2 in /usr/trimui/lib, which the GLES path needs. Keep /usr/trimui/lib
+# on the path: system helpers spawned below load libmsettings.so from
 # .system/lib, which a game-first override would shadow.
-export LD_LIBRARY_PATH="$PAK_DIR/libs.aarch64:/usr/trimui/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="$PAK_DIR/libs.aarch64:/usr/trimui/lib:$PAK_DIR/bin/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 # --- audio routing ---------------------------------------------------------
 # audiomon maintains the ALSA config for whichever output sink is selected in

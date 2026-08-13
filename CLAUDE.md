@@ -40,7 +40,9 @@ NextUI is TrimUI-only (`makefile:15` upstream is `PLATFORMS = tg5050 tg5040`). T
 target here, unlike the author's other paks.
 
 Both platforms are **1 GB** on Brick and Smart Pro S. The LÖVE runtime is a single aarch64 binary
-shared by both platforms — there are no per-platform `bin/` or `lib/` directories.
+shared by both platforms — there are no *per-platform* `bin/` or `lib/` directories. There is one
+shared `bin/lib/`, holding a fallback `libmpg123.so.0` for firmware images that lack one (see the
+gotcha below); the aarch64 build is identical on tg5040 and tg5050.
 
 ## Key commands
 
@@ -84,6 +86,25 @@ the pak directory — a pak update would otherwise destroy them.
   `contracts.device_missing_tools` is enforced by `verify.sh` — the original SHA-1 scan
   matched nothing and logged no error, so nothing off-device could have caught it. `stat`,
   `taskset`, `openssl`, `cksum` and `nproc` are also absent.
+- **Whether the firmware ships `libmpg123.so.0` varies by image, and `liblove` needs it.**
+  `readelf -d liblove-11.5.so` lists it, and neither the RG34XXSP port zip nor PortMaster's own
+  `love_11.5` runtime bundles it (both ship only liblove, libluajit, libmodplug, libogg). On an
+  image without one, `love.aarch64` dies at load with *"error while loading shared libraries:
+  libmpg123.so.0: cannot open shared object file"* — a black screen, the log ending right after
+  `=== love output follows ===` (issue #1, a clean NextUI flash). It is the *only* NEEDED library
+  that can be missing: the loader names it, not the entries before it (SDL2, freetype, openal, z,
+  vorbisfile, theoradec), which resolve. **Do not restate this as "the firmware has none"** — the
+  Brick measured on 2026-08-13 ships `libmpg123.so.0.44.12` (Nov 2025) and runs fine without the
+  bundle. That is exactly why `bin/lib` goes **last** on `LD_LIBRARY_PATH`, after `/usr/trimui/lib`:
+  the bundled build is 0.44.8 (2018), so putting it first silently downgrades the decoder on every
+  device that already works. Verified with `LD_DEBUG=libs` in both orders, and against a simulated
+  image with the firmware copy removed. `build.sh` unpacks it from a pinned Ubuntu 18.04 `.deb` into
+  `bin/lib/`. The Ubuntu 18.04 build is deliberate: it needs only `GLIBC_2.17`, so it loads on any
+  device this pak targets, where a current distro build would pull in `GLIBC_2.29+` math symbols.
+  `verify.sh` pins the extracted `.so`, asserts its SONAME, arch and glibc ceiling, asserts the
+  search-path order, and fails if `liblove` ever stops needing it. Do **not** bundle SDL2, freetype, openal or
+  the rest of `liblove`'s dependencies — those come from the firmware, and shadowing the vendor SDL2
+  breaks GLES.
 - **The device has no CA store.** `/etc/ssl/certs`, `/etc/ssl/cert.pem` and `/etc/pki` are all
   absent, and the engine does HTTPS by shelling out to `curl` (`src/net/Fetch.lua`). Without a
   bundle every request fails with curl exit 60, surfacing in the mod manager as a failed update
