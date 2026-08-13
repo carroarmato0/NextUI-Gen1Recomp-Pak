@@ -168,9 +168,15 @@ if [ "$REFRESH_CA" = 1 ]; then
   curl -fL --connect-timeout 20 --max-time 120 --progress-bar \
     "$(jqlock '.ca_bundle.url')" -o "$CA_FILE" || fail "could not fetch the CA bundle"
   newsha="$(sha256sum "$CA_FILE" | cut -d' ' -f1)"
+  # Repin the date as well as the hash. It is what the non-refresh path prints and
+  # the only human-readable record of how old the roots are, so leaving it behind
+  # would make a fresh bundle look stale and a stale one look fresh.
+  newdate="$(sed -n 's/^## Certificate data from Mozilla as of: *//p' "$CA_FILE" | head -1)"
+  newdate="$(date -u -d "$newdate" +%Y-%m-%d 2>/dev/null || echo unknown)"
   tmp="$LOCK.tmp"
-  jq --arg s "$newsha" '.ca_bundle.sha256=$s' "$LOCK" > "$tmp" && mv "$tmp" "$LOCK"
-  say "CA bundle repinned: $newsha"
+  jq --arg s "$newsha" --arg d "$newdate" \
+     '.ca_bundle.sha256=$s | .ca_bundle.mozilla_date=$d' "$LOCK" > "$tmp" && mv "$tmp" "$LOCK"
+  say "CA bundle repinned: $newsha (Mozilla $newdate)"
   warn "Commit upstream.lock, and re-test HTTPS on a device before releasing."
 else
   fetch "$(jqlock '.ca_bundle.url')" "$CA_FILE" "$(jqlock '.ca_bundle.sha256')" \
