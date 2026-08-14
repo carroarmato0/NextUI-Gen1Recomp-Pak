@@ -5,13 +5,13 @@
 # upstream artifacts and rearranged:
 #
 #   upstream release zip  ->  bin/love.aarch64, libs.aarch64/, game/
-#   voxel mod backup zip  ->  game/mods/DRAMATIC_SHAPE/
+#   voxel mod release zip ->  game/mods/DRAMALESS_SHAPE/
 #   this repo             ->  launch.sh, pak.json, LICENSE, README.md
 #
 # Usage:
 #   scripts/build.sh [--no-voxel] [--tag vX.Y.Z] [--refresh-lock] [--refresh-ca]
 #
-#   --no-voxel      skip the voxel mod: 7.8 MB to download, 18 MB of the 31 MB pak
+#   --no-voxel      skip the voxel mod: 0.5 MB to download, 1.8 MB of the pak
 #   --tag           build a specific upstream tag instead of upstream.lock's
 #   --refresh-lock  resolve the LATEST upstream release and rewrite upstream.lock
 #                   with the new tag/asset/sha256 (what upstream-watch.yml uses)
@@ -187,9 +187,9 @@ else
 fi
 
 if [ "$WITH_VOXEL" = 1 ]; then
-  VOXEL_ZIP="$CACHE/DRAMATIC_SHAPE-$(jqlock '.voxel_mod.version').zip"
+  VOXEL_ZIP="$CACHE/$(jqlock '.voxel_mod.name')-$(jqlock '.voxel_mod.version').zip"
   fetch "$(jqlock '.voxel_mod.url')" "$VOXEL_ZIP" "$(jqlock '.voxel_mod.sha256')" \
-        "voxel mod $(jqlock '.voxel_mod.version') (~8 MB)"
+        "voxel mod $(jqlock '.voxel_mod.name') $(jqlock '.voxel_mod.version') (~0.5 MB)"
 fi
 
 # libmpg123: liblove needs it and the firmware does not ship it (see the mpg123
@@ -289,12 +289,35 @@ done
   && cp "$SRC/licenses/LICENSE.love2d.txt" "$PAK/licenses/"
 
 # ------------------------------------------------------------------- voxel mod
+# The archive is NESTED -- everything sits under a single DRAMALESS_SHAPE-<ver>/
+# whose name changes every release -- where the old DRAMATIC_SHAPE zip was flat
+# at its root. The folder name is pinned in the lock rather than globbed, so an
+# upstream layout change fails the build instead of quietly installing a tree the
+# loader finds no entry point in. unzip -j is not an option: the mod has subdirs.
 if [ "$WITH_VOXEL" = 1 ]; then
-  MOD_DIR="$PAK/$(jqlock '.voxel_mod.install_path' | sed 's|^game/|game/|')"
+  MOD_DIR="$PAK/$(jqlock '.voxel_mod.install_path')"
+  MOD_WORK="$WORK/voxel"
+  ROOT_DIR="$(jqlock '.voxel_mod.archive_root')"
   say "installing voxel mod -> ${MOD_DIR#"$PAK/"}"
-  mkdir -p "$MOD_DIR"
-  unzip -q "$VOXEL_ZIP" -d "$MOD_DIR" || fail "could not unpack the voxel mod"
-  [ -f "$MOD_DIR/main.lua" ] || fail "voxel mod has no main.lua -- unexpected archive layout"
+
+  mkdir -p "$MOD_WORK"
+  unzip -q "$VOXEL_ZIP" -d "$MOD_WORK" || fail "could not unpack the voxel mod"
+
+  # Exactly one top-level entry, and it is the name we pinned.
+  found="$(find "$MOD_WORK" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)"
+  [ "$found" = "$ROOT_DIR" ] || fail "unexpected voxel mod archive layout.
+upstream.lock pins archive_root '$ROOT_DIR'; the zip's top level holds:
+$found"
+
+  mkdir -p "$(dirname "$MOD_DIR")"
+  mv "$MOD_WORK/$ROOT_DIR" "$MOD_DIR"
+
+  # The LICENSE is the whole reason this mod replaced the last one -- see the
+  # voxel_mod note in upstream.lock. A build that loses it must not succeed.
+  for f in main.lua manifest.json LICENSE; do
+    [ -f "$MOD_DIR/$f" ] || fail "voxel mod is missing $f -- refusing to build"
+  done
+  cp "$MOD_DIR/LICENSE" "$PAK/licenses/LICENSE.$(jqlock '.voxel_mod.name').txt"
 else
   say "skipping voxel mod (--no-voxel)"
 fi
@@ -327,10 +350,12 @@ Bundles:
     from the Ubuntu 18.04 $(jqlock '.mpg123.package') package.
 
 $( [ "$WITH_VOXEL" = 1 ] && cat <<VOX
-  DramaticShapeVoxelMod $(jqlock '.voxel_mod.version')
-    Original repository (DramaticShape/DramaticShapeVoxelMod) is no longer
-    available; archived copy from
-    https://github.com/linkfy/DramaticShapeVoxelModBackup
+  $(jqlock '.voxel_mod.name') $(jqlock '.voxel_mod.version') -- $(jqlock '.voxel_mod.license')
+    https://github.com/$(jqlock '.voxel_mod.repo')
+    Full licence text in licenses/LICENSE.$(jqlock '.voxel_mod.name').txt.
+    Derived from DramaticShapeVoxelMod (MIT-era code) and from MIT-licensed code
+    in the TERRARIUM fork by BrenoBertucci, with fixes and additions by
+    Stahltier (artyrambles), redistributed under the MIT licence above.
 VOX
 )
 Device bring-up parameters for TrimUI hardware were learned from nx-redux
@@ -349,5 +374,5 @@ jq -n --arg tag "$TAG" --arg ver "$VERSION" --argjson voxel "$WITH_VOXEL" \
 say "done."
 printf '  pak       %s\n'  "$PAK"
 printf '  upstream  %s (%s)\n' "$VERSION" "$TAG"
-printf '  voxel mod %s\n'  "$( [ "$WITH_VOXEL" = 1 ] && echo "yes ($(jqlock '.voxel_mod.version'))" || echo no )"
+printf '  voxel mod %s\n'  "$( [ "$WITH_VOXEL" = 1 ] && echo "yes ($(jqlock '.voxel_mod.name') $(jqlock '.voxel_mod.version'))" || echo no )"
 printf '  size      %s\n'  "$(du -sh "$PAK" | cut -f1)"

@@ -48,7 +48,7 @@ gotcha below); the aarch64 build is identical on tg5040 and tg5050.
 
 ```sh
 scripts/build.sh              # fetch + stage runtime and game payload (verifies upstream.lock)
-scripts/build.sh --no-voxel   # skip the voxel mod (7.8 MB download, 19 MB of the 34 MB pak)
+scripts/build.sh --no-voxel   # skip the voxel mod (0.5 MB download, 1.8 MB of the 22 MB pak)
 scripts/verify.sh             # all static + contract checks (also run by CI and release.sh)
 test/test-launch.sh           # launch.sh behaviour under dash against a fake SD card
 scripts/release.sh            # -> dist/Gen1Recomp.pak.zip and dist/Gen1Recomp.pakz
@@ -79,8 +79,65 @@ the pak directory — a pak update would otherwise destroy them.
 
 - **`portable.txt` must be stripped from the upstream payload.** With it present, LÖVE writes beside
   `main.lua` (inside the pak dir) and a pak update wipes saves. We set `XDG_DATA_HOME` instead.
-- **The upstream voxel mod repo (`DramaticShape/DramaticShapeVoxelMod`) is gone — 404.** The only
-  source is the community backup `linkfy/DramaticShapeVoxelModBackup`, pinned at 1.7.2.
+- **The voxel mod is `DRAMALESS_SHAPE`, and the reason is licensing, not features.** Through v0.3.0
+  the pak shipped `DRAMATIC_SHAPE` 1.7.2 from a community mirror, after the author deleted the repo.
+  That tree has **no LICENSE file** and its `README.md:3` reads *"Redistribution of non-derivative
+  code is expressly prohibited after v1.6.0 without permission"* — so the pak was redistributing a
+  work whose author had forbidden it, and nothing in the build caught it. Of the forks, only
+  `artyrambles/DRAMALESS_SHAPE` is redistributable: it rebased onto the openly licensed upstream code
+  and issues its own MIT grant, shipped inside the release zip. `BATTLE_ART_VOXEL_FORK` (absol89),
+  `potato_voxel` and `TERRARIUM` all have **no licence** — PotatoVoxel is the best performance fit
+  for this hardware and still cannot be bundled. The upstream MIT window was **v1.5.4–v1.6.0 only**,
+  not "until 1.6.2" as commonly repeated. `verify.sh` now asserts the LICENSE exists and grants
+  permission, so a future bump cannot silently lose it.
+- **A leftover mod folder disables the mod that replaced it, silently.** A pak update *merges*, so a
+  card from v0.3.0 keeps `game/mods/DRAMATIC_SHAPE/`. `DRAMALESS_SHAPE` declares a conflict with it,
+  and the engine's rule (`src/mods/Loader.lua`, `_enforceConflicts`) is that **the declaring mod
+  loses** — so the *new* mod fails and the player keeps running the old one with nothing in the log
+  to say so. Both are enabled by default: the loader enables anything not marked `experimental`.
+  `contracts.legacy_mod_ids` in `upstream.lock` is the source of truth; `launch.sh` deletes each id
+  from the pak's own `game/mods/` and only *reports* a copy in the player's save dir, and
+  `verify.sh` asserts both the staged tree and `launch.sh`'s hard-coded copy of the list.
+- **Gen1Recomp has an official mod index, and `launch.sh` seeds it on fresh installs only.**
+  `bryanthaboi/gen1recomp-mod-index`, ~107 mods, pinned in `contracts.mod_index`. The engine ships
+  none configured by design (`src/mods/ModIndex.lua`: adding one is a deliberate act of trust), but
+  the "ask" costs a URL typed on a d-pad, so the pak enters it once. **The guard is the interesting
+  part:** it writes only when `options.lua`, `options.lua.bak` *and* `options.lua.tmp` are all
+  absent. `SaveData.loadOptions` heals from the `.bak`/`.tmp` copies when the main file is missing,
+  so writing ours over that state would destroy every setting the player had. `verify.sh` asserts
+  both the slug and the presence of that guard. `ModIndex.resolveSource` also accepts a bare
+  `owner/repo`, which is what the README tells people to type. Works on device only because of the
+  CA bundle. Player-installed mods land in `$SAVEROOT/mods/`, so a pak update leaves them alone.
+- **Choosing a version does not choose what gets imported, and that is upstream, not us.** On Linux
+  `chooseRom` (zenity/kdialog) is absent, so `RomImporter.lua:1971` falls back to
+  `findPendingRom(self.ready)` — the **first** not-yet-imported `.gb/.gbc` in
+  `getDirectoryItems("")` order. `self.chooseVersion` is used only for the dialog title and the
+  notice text. We stage all four dumps at once, so "select Red" commonly imports Blue (it sorts
+  first). **Nothing is mislabelled** — `startData` routes by SHA-1 — and repeated launches import
+  everything, so do not "fix" this by staging one dump per launch: that costs four launches for
+  four games and still ignores the selection. Verified on a Brick, 2026-08-14.
+- **Browsing the mod catalogue freezes the game, and seeding the index is what exposes players to
+  it.** `HostShell.httpGet` is `io.popen` + `read("*a")` with `--connect-timeout 10 --max-time 40`,
+  so a call on the render thread stops the picture for up to ~50 s. Upstream moved the *feed* fetch
+  onto `love.thread` workers (`src/net/Fetch.lua`, whose header records the old 2-minute freeze) and
+  `fetch_worker.lua` **is** present in our payload — but `RomImporter:_findShowDetails` still calls
+  `ModIndex.fetchText` synchronously. Players also report freezes on first listing load and on
+  paging, which are **not** explained by the async feed path; the 142 KB / 107-mod parse on the main
+  thread is a candidate, unproven. Do not describe the trigger more confidently than that.
+- **The official index lists `DRAMATIC_SHAPE` 1.8.2, and installing it silently disables our mod.**
+  Verified 2026-08-14: same id, same `github` field, **196 of 222 files byte-identical** to the
+  1.7.2 we removed, hosted by the `scottcandy34` mirror, still **no LICENSE file**. The prohibition
+  line at `README.md:3` of 1.7.2 is **absent** in 1.8.2 — cannot be established whether the author
+  dropped it before deleting the repo or the mirror did, and do not assert either. Its manifest does
+  *not* list `DRAMALESS_SHAPE` as a conflict, but ours lists it — and the declaring mod loses — so a
+  player who installs it from the catalogue gets the old unlicensed mod running and the bundled one
+  failed, with nothing on screen to explain it. `launch.sh` reports a save-dir copy and deliberately
+  does not delete it. The pak neither ships nor hosts it; note that we *do* seed the catalogue that
+  lists it, which is a pointer, not redistribution.
+- **The voxel mod's hotkeys are keyboard-only, so on a handheld the OPTIONS menu is the only route.**
+  Dramaless binds letters (`v`/`g`/`t`/`c`) via `Game.keypressed` and has no gamepad binding at all;
+  the mod it replaced deliberately bound SELECT because "phones and pads have no number row".
+  Confirmed on a Brick, 2026-08-14. Not a bug to fix here — worth an upstream issue.
 - **The device has no `sha1sum`.** It ships `sha256sum` and `md5sum` only (confirmed on a
   Trimui Brick). The ROM scan therefore matches on SHA-256, and `upstream.lock`'s
   `contracts.device_missing_tools` is enforced by `verify.sh` — the original SHA-1 scan
@@ -111,8 +168,22 @@ the pak directory — a pak update would otherwise destroy them.
   check with no mention of certificates. The pak ships `assets/ca-certificates.crt` and exports
   `CURL_CA_BUNDLE` + `SSL_CERT_FILE`. The bundle is pinned; refresh with
   `scripts/build.sh --refresh-ca`, since roots expire and a stale bundle fails the same silent way.
-- **The voxel mod's update check fails regardless** — `DramaticShape/DramaticShapeVoxelMod` is 404.
-  Unrelated to TLS, and does not stop the mod working.
+- **`DRAMALESS_SHAPE` is measured on both devices, and it is NOT lighter than the mod it replaced.**
+  Do not repeat the "halves its render scale, so its ceiling is probably lower" guess — it was
+  tested and it is wrong. Measured 2026-08-14, v0.4.0, voxel on:
+  - **Smart Pro S**: peak RSS **726 MB** vs the old mod's 722 MB, paging in **9 of 30** samples
+    (old: 22 of 30), MemAvailable down to 37 MB, GPU p75 85%, love CPU 98% of *one* core of eight.
+    Memory- and single-thread-bound, swap-thrashing. The lower paging count is not a fix: that run
+    started already at 726 MB and covered a different route. **Swap.pak stays a requirement.**
+  - **Brick**: GPU median 68% / **p75 96% / peak 100%** (old mod's p75 was also 96%), love CPU 235%
+    of one core of four, RSS 38 MB → **~440 MB peak** (old mod: 386 MB), only 3 MB of swap touched.
+    GPU-bound. The lower median came from a session with indoor stretches, not a controlled
+    comparison — do not sell it as a 23-point win. RSS is not monotonic: it fell to 75 MB
+    mid-session (mesh eviction), though that coincided with a voxel-level change.
+  - The two devices fail differently: Brick is GPU-bound, Smart Pro S is memory-bound. Same mod.
+- **`profile-device.sh`'s first sample is garbage.** The GPU counter has no previous delta to
+  difference against, so row one reported 649% here while reading 0% CPU. Discard it; it poisons the
+  reported peak.
 - **The voxel mod is GPU-bound on a Brick and memory-bound on a Smart Pro S.** Brick: GPU median
   91% / p75 96% / peak 100% while rendering. Smart Pro S: GPU has headroom (83% p75 once threads
   are pinned) but RSS climbs to **~722 MB** on a 962 MB device and pages hard — swap is what keeps
