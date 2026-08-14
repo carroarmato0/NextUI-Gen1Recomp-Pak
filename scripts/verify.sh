@@ -315,11 +315,96 @@ check $? "launch.sh uses sha256sum (present on device) for the ROM scan"
 # ----------------------------------------------------------- voxel mod
 group "Voxel mod"
 
-if [ -d "$PAK/game/mods/DRAMATIC_SHAPE" ]; then
-    [ -f "$PAK/game/mods/DRAMATIC_SHAPE/main.lua" ]
+MOD_NAME=$(jqlock '.voxel_mod.name')
+MOD_DIR="$PAK/$(jqlock '.voxel_mod.install_path')"
+
+# Whether or not a mod was staged, the legacy ids must be gone. This is the check
+# that matters most: a leftover DRAMATIC_SHAPE folder does not break the build,
+# it silently disables the mod that replaced it (the declaring mod loses the
+# conflict -- see contracts.legacy_mod_ids in upstream.lock).
+legacy_ok=0
+while IFS= read -r id; do
+    [ -n "$id" ] || continue
+    if [ -e "$PAK/game/mods/$id" ]; then
+        bad "legacy mod '$id' is staged in the pak -- it would disable $MOD_NAME"
+        legacy_ok=1
+    fi
+    # launch.sh cannot read this lock on device, so it spells the ids out. Assert
+    # the copy has not drifted from the original.
+    code_only | matches "(^|[^A-Z_])${id}([^A-Z_]|$)" \
+        || { bad "launch.sh does not remove legacy mod '$id'"; legacy_ok=1; }
+done < <(jqlock '.contracts.legacy_mod_ids[]?')
+check $legacy_ok "no legacy mod is staged, and launch.sh removes each one"
+
+if [ -d "$MOD_DIR" ]; then
+    [ -f "$MOD_DIR/main.lua" ]
     check $? "voxel mod has a main.lua"
-    [ -f "$PAK/game/mods/DRAMATIC_SHAPE/manifest.json" ]
+    [ -f "$MOD_DIR/manifest.json" ]
     check $? "voxel mod has a manifest.json"
+
+    # The licence is why this mod replaced the last one. The one it replaced had
+    # no LICENSE file at all and a README forbidding redistribution, and nothing
+    # in the build caught that -- so it is asserted here rather than trusted.
+    lic="$MOD_DIR/LICENSE"
+    lic_ok=0
+    [ -f "$lic" ] || { bad "voxel mod ships no LICENSE file"; lic_ok=1; }
+    if [ -f "$lic" ]; then
+        grep -q 'MIT License' "$lic" \
+            || { bad "voxel mod LICENSE is not the MIT licence"; lic_ok=1; }
+        grep -q 'Permission is hereby granted' "$lic" \
+            || { bad "voxel mod LICENSE carries no grant of permission"; lic_ok=1; }
+    fi
+    check $lic_ok "voxel mod ships an MIT licence with a grant of permission"
+
+    [ -f "$PAK/licenses/LICENSE.$MOD_NAME.txt" ]
+    check $? "voxel mod licence is copied into licenses/"
+
+    # Manifest against the lock and against the loader's own gates. A mod the
+    # loader refuses is indistinguishable on device from one that crashed.
+    man="$MOD_DIR/manifest.json"
+    [ "$(jq -r .id "$man")" = "$MOD_NAME" ]
+    check $? "manifest id is $MOD_NAME"
+    [ "$(jq -r .version "$man")" = "$(jqlock '.voxel_mod.version')" ]
+    check $? "manifest version matches upstream.lock ($(jqlock '.voxel_mod.version'))"
+    [ "$(jq -r .profile "$man")" = "content" ]
+    check $? "manifest profile is 'content' (the loader refuses anything else here)"
+    [ "$(jq -r .api "$man")" -le 2 ]
+    check $? "manifest api is <= 2, the engine's mod api"
+    [ "$(jq -r '.entry' "$man")" = "main.lua" ]
+    check $? "manifest entry is main.lua, which is present"
+
+    # Every id this mod declares a conflict with must be absent from the pak --
+    # shipping one would fail THIS mod, not the other.
+    conflict_ok=0
+    while IFS= read -r spec; do
+        [ -n "$spec" ] || continue
+        cid="${spec%%@*}"
+        [ -e "$PAK/game/mods/$cid" ] && {
+            bad "pak ships '$cid', which $MOD_NAME declares a conflict with"
+            conflict_ok=1
+        }
+    done < <(jq -r '.conflicts[]?' "$man")
+    check $conflict_ok "pak ships nothing the voxel mod declares a conflict with"
+
+    # The catalogue launch.sh seeds on a fresh install. launch.sh cannot read
+    # this lock on device, so assert its hard-coded copy has not drifted.
+    idx_ok=0
+    for field in owner repo; do
+        want=$(jqlock ".contracts.mod_index.$field")
+        code_only | matches "$want" || { bad "launch.sh's mod index $field is not '$want'"; idx_ok=1; }
+    done
+    # The seed must never step in front of the engine's options recovery: when
+    # options.lua is missing but a .bak or .tmp survives, loadOptions heals from
+    # those, and writing our file first would lose every setting the player had.
+    code_only | matches '\.bak' && code_only | matches '\.tmp' \
+        || { bad "launch.sh seeds options.lua without checking for .bak/.tmp -- that would eat the player's settings"; idx_ok=1; }
+    check $idx_ok "mod index matches the lock, and the seed respects options recovery"
+
+    # Regression guard. The mod this replaced carried 14 MB of Windows OpenXR
+    # loader (oxr/, oxr.zip) that cannot execute on aarch64 Linux. Nothing should
+    # ever bring that class of payload back in.
+    [ -z "$(find "$PAK" \( -name 'oxr' -o -name 'oxr.zip' -o -name '*.dll' -o -name '*.lib' \) -print -quit)" ]
+    check $? "pak carries no Windows/VR payload (oxr, .dll, .lib)"
 else
     note "voxel mod not present (built with --no-voxel)"
 fi

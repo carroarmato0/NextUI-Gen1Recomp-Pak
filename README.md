@@ -6,9 +6,11 @@
 
 *Captured on a TrimUI Brick at its native 1024×768, with the optional [3D voxel mod](#3d-voxel-mod) enabled. The 2D game looks exactly like the original.*
 
+> **This screenshot is out of date.** It was taken with the voxel mod v0.4.0 replaced, which rendered people as 3D figures; the mod bundled now draws them as flat sprites. Still to be retaken — the framebuffer grab this project uses returns a blank image for a GLES surface, so it needs a camera or a capture path we do not have yet.
+
 This is a [NextUI](https://github.com/LoveRetro/NextUI) pak that packages [Gen1Recomp](https://github.com/bryanthaboi/gen1recomp), a from-scratch recreation of the Generation 1 Pokémon games written in Lua on the LÖVE engine. It runs as native ARM64 code at your handheld's own resolution and frame rate, rather than emulating a Game Boy.
 
-> **Status: verified on a TrimUI Brick and a Smart Pro S.** The runtime, ROM import, 2D game, voxel mod, controller mapping and audio have all been exercised on real hardware. The Smart Pro and Brick Pro are untested — see [Tested on](#tested-on).
+> **Status: verified on a TrimUI Brick and a Smart Pro S.** The runtime, ROM import, 2D game, controller mapping and audio have all been exercised on real hardware. The Smart Pro and Brick Pro are untested. **The voxel mod changed in v0.4.0** and has been profiled on both devices: it renders fine, and it is **no lighter on memory** than the mod it replaced, so [Swap.pak](https://github.com/carroarmato0/NextUI-Swap-Pak) is still required — see [Tested on](#tested-on) and [Why the mod changed](#why-the-mod-changed).
 
 ## What this is, and what it is not
 
@@ -27,7 +29,7 @@ Credit for the game itself belongs entirely upstream. This repository is packagi
 
 - **NextUI** on a TrimUI device — `tg5040` (Brick, Smart Pro, Brick Pro) or `tg5050` (Smart Pro S)
 - **Your own US Red, Blue, Yellow or Gold cartridge dump.** Only the canonical US ROMs are accepted — the three 1 MiB Gen 1 carts and the 2 MiB Gold cart; the engine verifies by SHA-1 and refuses anything else
-- ~34 MB of card space, or ~15 MB if you build without the 3D mod
+- ~22 MB of card space, or ~20 MB if you build without the 3D mod
 - For the 3D voxel mod: [Swap.pak](https://github.com/carroarmato0/NextUI-Swap-Pak). See [3D voxel mod](#3d-voxel-mod)
 
 ## Install
@@ -90,17 +92,63 @@ SHA-256 rather than the SHA-1 upstream publishes, because these handhelds ship `
 
 Other regions, revisions and ROM hacks are not supported by the engine.
 
+### Choosing a version imports whichever one is still missing
+
+If you have several dumps, *Choose ROM* will often import a **different** edition from the one you picked — select Red and it may decode Blue. That is expected, and nothing is mislabelled.
+
+The pak stages every dump it recognises at once, and on Linux the engine has no file picker to offer, so it falls back to importing the first cartridge in the folder that has not been imported yet (`findPendingRom`). It identifies that file by its SHA-1, so Blue's data always becomes Blue — the version you *selected* is simply not what the fallback consults. Keep launching and every version you own gets imported; the end state is correct, only the order is not yours to choose. Reported upstream.
+
 ## 3D voxel mod
 
-The 3D look most people associate with Gen1Recomp is **not** part of the game — it comes from a separate, experimental mod, **DramaticShapeVoxelMod**, which replaces the flat overworld with a voxel one and adds camera depth, shadows and 3D battle presentation.
+The 3D look most people associate with Gen1Recomp is **not** part of the game — it comes from a separate, experimental mod, which replaces the flat overworld with a voxel one and adds camera depth, shadows and 3D battle presentation.
 
-It **ships with this pak but is switched off by default.** Enable it from the in-game mod manager (`OPTIONS → mods`, or `F10` on a keyboard).
+Since v0.4.0 that mod is **[Dramaless Shape](https://github.com/artyrambles/DRAMALESS_SHAPE) 2.0.1**. Step the **VOXEL** row on the in-game OPTIONS menu to turn the 3D world on.
 
-It is off by default for one specific reason: **memory.**
+### Why the mod changed
+
+Through v0.3.0 this pak bundled **DramaticShapeVoxelMod** 1.7.2. It should not have: that mod carries no licence file at all, and line 3 of its own README reads *"Redistribution of non-derivative code is expressly prohibited after v1.6.0 without permission."* Its author deleted the repository, and the copy here came from a community mirror. Bundling it was the maintainer's mistake, and v0.4.0 corrects it.
+
+Of the forks that appeared afterwards, only Dramaless Shape is redistributable. It rebased onto the last openly licensed upstream code, reverted the changes made after the licence was withdrawn, and publishes under the MIT licence — included in the pak at `licenses/LICENSE.DRAMALESS_SHAPE.txt`. The others (`BATTLE_ART_VOXEL_FORK`, `PotatoVoxel`, `TERRARIUM`) carry no licence and cannot be bundled, however good they are; PotatoVoxel in particular is the one built for hardware like this, and it is a genuine loss that it cannot ship here. All three remain installable by hand — see [More mods](#more-mods).
+
+### What you gain and lose
+
+Dramaless 2.0 is deliberately voxel-only. Compared with the mod it replaces:
+
+- **Gone:** Pokémon Stadium battle models and disc stages, the multi-mode `3D-BTL` selector, replacement battle art and move animations, VR, horde mode, and **voxelised character models** — people in the overworld are now flat sprites with silhouettes rather than 3D figures.
+- **Gained:** defaults chosen for weak hardware (the 3D pass renders at half resolution, shadows are held on their cheap path, expensive effects start off), a new **RENDER DIST** setting, a working update check, and a pak that is 22 MB instead of 39 MB.
+
+If you preferred the old mod, nothing stops you installing it yourself; this pak simply will not ship it for you.
 
 ### Memory: Swap.pak is required, not optional
 
-Measured across a session on a Smart Pro S (962 MB RAM), voxel mod on:
+> **Re-measured on v0.4.0, on both devices. The swap requirement stands.** Changing the voxel mod did not reduce memory use on the Smart Pro S: peak RSS is 726 MB against the old mod's 722 MB. Whatever else Dramaless is lighter on, it is not this.
+
+**Smart Pro S, v0.4.0, Dramaless Shape 2.0.1**, walking the overworld with VOXEL on, 60 s:
+
+| | Dramaless 2.0.1 | DramaticShapeVoxelMod 1.7.2 |
+|---|---|---|
+| LÖVE peak RSS | **726 MB** | 722 MB |
+| MemAvailable at worst | 37 MB | 35 MB |
+| Samples showing paging | **9 of 30** | 22 of 30 |
+| GPU p75 | 85% | 83% |
+
+**No meaningful improvement.** The working set is the same size, and the device pages just as it did before — the profiler's verdict is *swap thrashing*, and the stalls you feel are disk waits that no graphics setting will touch. Read the lower paging count with care: this run began at 726 MB, already deep into a session, and the two samples cover different routes and lengths. It is not evidence of a fix.
+
+Note the shape of the load differs from the Brick: here the GPU sits at 85% with LÖVE pinned at 98% of a single core out of eight, so this device is bound by one thread and by memory, not by the GPU.
+
+**Brick, v0.4.0, Dramaless Shape 2.0.1**, walking Route 1 with VOXEL on, sampled over 60 s and then tracked for three minutes more:
+
+| | Measured |
+|---|---|
+| LÖVE RSS | 38 MB at launch → **~440 MB peak** |
+| MemAvailable at worst | 88 MB of 998 MB |
+| Swap used | **3 MB** of 1 GB — essentially no paging |
+
+Memory is **not monotonic**: RSS fell from ~410 MB back to 75 MB inside a single session, which is the mod's per-map mesh eviction doing its job. That drop coincided with the player changing the voxel level, though, so it is not clean evidence of eviction under plain walking.
+
+This window did not establish a ceiling — RSS was still climbing when it closed, and on the Brick the old mod peaked at a comparable 386 MB. Between the two devices the picture is consistent: the new mod is not measurably lighter than the one it replaced.
+
+Measured across a session on a Smart Pro S (962 MB RAM), **DramaticShapeVoxelMod 1.7.2** on:
 
 | Point in session | LÖVE RSS | Free | Paging |
 |---|---|---|---|
@@ -141,26 +189,31 @@ Every figure here is one or two runs on one or two devices. Treat the directions
 
 **The pak does not write any of these for you.** It could — the engine merges a partial `options.lua` over its defaults, so seeding on first run would be safe. It does not, because nothing we measured justifies it: the two settings that would have been invisible technical wins do nothing, and the one with any effect is a visible change with an unreliable payoff.
 
-### Why the mod's update check fails
+The one exception is the mod catalogue, and only on a brand-new install — see [More mods](#more-mods). No graphics or gameplay setting is ever written for you.
 
-Two separate things, worth telling apart:
+### The mod's update check
 
-**Certificates.** These handhelds ship no CA store at all, and the engine does HTTPS by shelling out to `curl`. Every request therefore failed verification (`curl` exit 60), which the mod manager reported simply as a failed check. This pak ships a CA bundle and points `curl` at it, so HTTPS works.
+These handhelds ship no CA store at all, and the engine does HTTPS by shelling out to `curl`. Every request therefore failed verification (`curl` exit 60), which the mod manager reported simply as a failed check. Since v0.2.2 this pak ships a CA bundle and points `curl` at it, so HTTPS works.
 
-**The mod's repository is gone.** `DramaticShape/DramaticShapeVoxelMod` returns 404, so its update check fails even with working TLS — there is nothing left to check against. That is not something this pak can fix, and it does not stop the mod working. The copy bundled here (1.7.2) comes from a community archive.
+Until v0.3.0 the check failed anyway, because `DramaticShape/DramaticShapeVoxelMod` returns 404 — there was nothing left to check against. **That is fixed in v0.4.0 by the mod swap:** Dramaless Shape has a live repository, so the update check now resolves.
 
-So: a failed update check on the voxel mod specifically is expected. The mod itself still loads and runs.
+One consequence worth expecting: it releases *fast*. Five releases in six days at the time of writing, so the manager may well tell you an update is available shortly after you install the pak.
 
 ### Performance: the bottleneck differs by device
 
 Measured with `scripts/profile-device.sh`, sampling only while rendering.
 
-**TrimUI Brick** (A133, PowerVR GE8300, 4 cores) — **GPU-bound:**
+**TrimUI Brick** (A133, PowerVR GE8300, 4 cores) — **GPU-bound**, on both mods:
 
-| Setting | GPU median | GPU p75 |
-|---|---|---|
-| MAX FPS 60 | 91% | 96% |
-| MAX FPS 30 | 92% | 99% |
+| Mod | GPU median | GPU p75 | GPU peak |
+|---|---|---|---|
+| **Dramaless Shape 2.0.1** (v0.4.0, MAX FPS 60) | **68%** | **96%** | 100% |
+| DramaticShapeVoxelMod 1.7.2 (MAX FPS 60) | 91% | 96% | 100% |
+| DramaticShapeVoxelMod 1.7.2 (MAX FPS 30) | 92% | 99% | — |
+
+The p75 is identical at 96%, so the new mod is still GPU-saturated while rendering. Its lower median reflects a session that included indoor and menu stretches rather than a controlled comparison — do not read it as a 23-point win. Its CPU use is genuinely multi-threaded: 235% of one core across four, with system CPU p75 at 45%.
+
+(The profiler's first sample reports an impossible GPU figure — 649% here — because the utilisation counter has no previous delta to difference against. The same row reads 0% CPU. Ignore row one.)
 
 Capping the frame rate changed nothing, and that is worth understanding rather than retrying. The cap is a sleep budget in the run loop, so it only binds when frames are produced *faster* than the target. With the GPU pinned near 99% under a 30 cap, the device is already below 30 fps and there is nothing to hold back — and 30 is the floor of the ladder (`FrameCap.MIN`). An earlier version of this README recommended capping at 30 as the biggest win; measurement says it is not.
 
@@ -180,6 +233,42 @@ On both devices the CPU as a whole is nowhere near saturated — 19–39% across
 The one lever that matters is **swap** — on the Smart Pro S memory is the binding constraint, not the GPU. VOID FILL = BLACK helps inconsistently and does not move the frame rate; the mod's mesh ring is a hardcoded constant, so draw distance is not adjustable. See [Recommended settings](#recommended-settings).
 
 Be realistic: this is a 3D renderer on budget handheld silicon. The 2D game runs comfortably on both.
+
+## More mods
+
+The voxel mod is the only one this pak bundles, but it is one of over a hundred. Gen1Recomp keeps an official catalogue at [`bryanthaboi/gen1recomp-mod-index`](https://github.com/bryanthaboi/gen1recomp-mod-index) — quality-of-life tweaks, UI replacements, alternative voxel forks, extra music — and the game installs from it directly, under **Find mods** in the in-game mod manager.
+
+**On a brand-new install the pak adds that catalogue for you**, and says so in the log. The engine ships none configured, on purpose: adding one is an act of trusting whoever publishes it, so it asks rather than assuming. That default is right for a desktop, but on a handheld the "ask" means typing a URL on a d-pad keyboard, and this particular catalogue is published by the engine's own author. Remove it in-game and it stays removed — it is entered once, never re-added.
+
+It is only ever added when there is no options file at all, backups included. If yours is missing but a `.bak` or `.tmp` survives, the engine heals your settings from those, and writing ours would destroy them.
+
+To add it by hand — on an existing install, or after removing it — you do **not** need the full URL. **Find mods** accepts a bare `owner/repo`:
+
+```
+bryanthaboi/gen1recomp-mod-index
+```
+
+Worth keeping in mind either way: an index is only metadata, but every mod it lists is code from a stranger's repository, running with access to your save data.
+
+**Browsing it can freeze the game for up to a minute. That is not a crash — wait it out.** The engine fetches over HTTPS by shelling out to `curl` and reading the pipe to completion, and some of those calls still run on the drawing thread, so the picture stops until the request finishes or times out (`--max-time 40`, plus up to 10 s to connect). Opening a mod's **details** is the case we confirmed in the code; players have also seen it on the first load of the listing and when paging through it, which we have not pinned down. Nothing is lost when it happens.
+
+Three caveats specific to this hardware:
+
+- This works here **only because of the CA bundle** added in v0.2.2. Without it every fetch fails verification, and the manager reports it as a failed download with no mention of certificates.
+- **Check what you install.** Several popular mods are bound to keyboard keys and are unreachable on a handheld; the music packs run to 300 MB; and a few need a network connection to a server. Nothing about the catalogue filters for a 1 GB gamepad-only device.
+- **A mod you install can disable the bundled one**, silently, if the two declare a conflict. See below.
+
+Mods you install yourself land in your save directory, not in the pak, so a pak update will not remove them.
+
+### The catalogue lists the mod this pak removed
+
+`DRAMATIC_SHAPE` is in there, at **1.8.2** — newer than the 1.7.2 v0.3.0 shipped. It is the same mod: same id, same `github` field pointing at the deleted original, and **196 of its 222 files are byte-identical** to the copy this pak used to bundle. It is hosted by a preservation mirror rather than its author.
+
+Two things worth knowing before you install it.
+
+**It will silently disable the bundled voxel mod.** Dramaless declares a conflict with it, and the engine's rule is that the *declaring* mod loses — so with both installed, Dramaless is the one that fails, and you end up on the old mod with nothing on screen to say so. The pak notices a copy in your save directory and says so in the log, but it will not touch it: your install is yours.
+
+**Its licence position is unchanged, and it is no longer this pak's to resolve.** 1.8.2 still ships no licence file of any kind. The line in the 1.7.2 README that said *"Redistribution of non-derivative code is expressly prohibited after v1.6.0 without permission"* is **absent** from 1.8.2 — whether the author removed it before the repository disappeared, or the mirror dropped it, cannot be established now that the original is gone. Installing it is a direct download from a third party to your device: this pak neither ships it nor hosts it. It is listed here because it is a fact about the catalogue, not a recommendation.
 
 ## Controls
 
@@ -218,11 +307,12 @@ Stated plainly, because these are structural rather than bugs, and knowing them 
 
 ### The voxel mod
 
-- **It is not smooth, and no setting fixes that.** On a Brick it is GPU-bound at 91–99% and renders below 30 fps. On a Smart Pro S the GPU has headroom but memory does not. The 2D game runs comfortably on both.
-- **It needs swap.** ~700 MB working set on a ~960 MB device. Without [Swap.pak](https://github.com/carroarmato0/NextUI-Swap-Pak) the session is eventually OOM-killed.
-- **Its update check always fails.** The mod's repository (`DramaticShape/DramaticShapeVoxelMod`) returns 404, so there is nothing to check against. Unrelated to the TLS fix this pak ships, and it does not stop the mod working.
-- **It is pinned at 1.7.2** — the newest version the community archive holds. Later versions are referenced elsewhere but are not obtainable from any source we can verify.
-- **Draw distance is not adjustable.** The mesh ring is a hardcoded constant, not an option, whatever third-party guides claim.
+- **Its hotkeys do not work on a handheld — use the OPTIONS menu.** Every shortcut the mod defines is a letter key (`v` voxel, `g` grid, `t` tilt-shift, `c` curve) bound to the keyboard only; there is no gamepad binding anywhere in it. The mod this replaced bound **SELECT** to step the voxel ladder precisely because pads have no number row, and Dramaless dropped that. Nothing is unreachable — every hotkey is also a row on the OPTIONS menu — but it is two more button presses than it used to be. Confirmed on a Brick.
+- **It is not smooth on a Brick, and no setting fixes that.** Measured on v0.4.0: GPU p75 96%, peak 100% while rendering. There is no userspace clock control on this PowerVR part, so the only lever is drawing less — lower RENDER DIST, or set WATER to OFF, which the mod's author calls the biggest single win.
+- **Swapping the mod did not reduce memory use.** Measured on v0.4.0: 726 MB peak on a Smart Pro S against the old mod's 722 MB, paging in 9 of 30 samples. Dramaless halves its render scale by default and drops the VR and Stadium payloads, but the voxel working set is what fills a 1 GB device, and that has not changed.
+- **It needs swap, and the new mod did not change that.** Measured on v0.4.0: 726 MB peak on a Smart Pro S with active paging, against the old mod's 722 MB. Without [Swap.pak](https://github.com/carroarmato0/NextUI-Swap-Pak) the session is OOM-killed. The Brick is easier on memory (~440 MB, 3 MB of swap touched) but is GPU-bound instead. The 2D game runs comfortably on both.
+- **No Stadium models, 3D battle modes, VR or voxel characters.** Dramaless 2.0 dropped all of them; see [What you gain and lose](#what-you-gain-and-lose).
+- **The mod releases faster than this pak does.** Expect the in-game update check to offer a newer version than the bundled one.
 
 ### Measurement
 
@@ -277,6 +367,10 @@ Honest status. An untested device is listed as untested, not assumed to work.
 
 The runtime itself is known to work on this hardware class — the LÖVE 11.5 ARM64 build here is the same one shipped by [PortMaster](https://portmaster.games/), and [nx-redux](https://github.com/mohammadsyuhada/nx-redux) runs Gen1Recomp with the voxel mod on both platforms. What is untested is *this pak*.
 
+**On v0.4.0 specifically:** the new voxel mod **loads and renders on a Brick** — verified on hardware, walking the overworld in 3D, with the engine logging `loaded mod DRAMALESS_SHAPE 2.0.1` and persisting the voxel setting. The in-place upgrade from v0.3.0 was verified on **both** devices: merged over the old install, the superseded mod is removed on first launch, and no save was touched.
+
+**Both devices are now profiled on v0.4.0.** Brick: still GPU-bound (p75 96%, peak 100%), RSS around 440 MB, 3 MB of swap touched. Smart Pro S: 726 MB peak and paging in 9 of 30 samples, against the old mod's 722 MB and 22 of 30 — memory-bound and swap-thrashing, essentially unchanged. Swap remains a requirement, not a suggestion.
+
 ## Building from source
 
 No compiler and no cross-toolchain. Everything is fetched from pinned, hash-verified upstream artifacts and rearranged.
@@ -285,7 +379,7 @@ There is genuinely nothing to compile: Gen1Recomp is LÖVE 11.5 / LuaJIT, so the
 
 ```sh
 scripts/build.sh                 # fetch + stage into build/Gen1Recomp.pak/
-scripts/build.sh --no-voxel      # skip the voxel mod (~19 MB of the 34 MB pak)
+scripts/build.sh --no-voxel      # skip the voxel mod (~1.8 MB of the 22 MB pak)
 scripts/verify.sh                # static + contract checks
 test/test-launch.sh              # launch.sh behaviour against a fake SD card
 scripts/release.sh               # -> dist/Gen1Recomp.pak.zip and dist/Gen1Recomp.pakz
@@ -313,7 +407,8 @@ This pak is **MIT**. It bundles:
 - **[Gen1Recomp](https://github.com/bryanthaboi/gen1recomp)** by bryanthaboi — MIT. The actual game; version **0.1.81** is bundled here. Upstream credits the [pret](https://github.com/pret) group's `pokered` disassembly as making the project possible.
 - **[LÖVE](https://love2d.org/) 11.5** — zlib. The ARM64 build comes from **[PortMaster](https://portmaster.games/)**, which is why this pak needs no compiler.
 - **[mpg123](https://www.mpg123.de/)** (`libmpg123.so.0`) — LGPL-2.1. A dependency of LÖVE that some TrimUI firmware images do not ship, so the pak carries a fallback copy in `bin/lib/`; without it the game cannot load on those images. Where the firmware provides its own, that one is used. The aarch64 build comes unmodified from the Ubuntu 18.04 `libmpg123-0` package.
-- **DramaticShapeVoxelMod** 1.7.2 — the 3D mod. Its original repository is no longer available; the copy used here comes from the community archive [`linkfy/DramaticShapeVoxelModBackup`](https://github.com/linkfy/DramaticShapeVoxelModBackup).
+- **[Dramaless Shape](https://github.com/artyrambles/DRAMALESS_SHAPE)** 2.0.1 by Stahltier (artyrambles) — MIT. The 3D voxel mod. Derived from DramaticShapeVoxelMod's openly licensed code and from MIT-licensed work in [TERRARIUM](https://github.com/BrenoBertucci/Terrarium) by BrenoBertucci. Full licence text ships in the pak at `licenses/LICENSE.DRAMALESS_SHAPE.txt`.
+- **[The Gen1Recomp mod index](https://github.com/bryanthaboi/gen1recomp-mod-index)** — not bundled, but the catalogue this README points you at for everything else.
 - **[NextUI](https://github.com/LoveRetro/NextUI)** — the firmware this targets.
 - **[Swap.pak](https://github.com/carroarmato0/NextUI-Swap-Pak)** — recommended for the voxel mod. The swap performance figures quoted above are its measurements.
 

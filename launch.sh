@@ -282,17 +282,23 @@ else
 fi
 
 # --- memory ----------------------------------------------------------------
-# The voxel mod pushes peak usage to roughly 750 MB, and Brick and Smart Pro S
-# have 1 GB total. Creating swap is Swap.pak's job, not ours -- we only point at
-# it. Writing 512 MB into someone's internal storage without asking is not this
-# pak's business.
+# A voxel renderer holds meshes for the maps around the player, so peak usage
+# tracks how far they have walked, not how long they have played -- and these
+# devices have 1 GB total. Creating swap is Swap.pak's job, not ours; we only
+# point at it. Writing 512 MB into someone's internal storage without asking is
+# not this pak's business.
+#
+# No number is quoted here on purpose. The ~750 MB peak this used to cite was
+# measured against DRAMATIC_SHAPE, which v0.4.0 replaced; DRAMALESS_SHAPE has a
+# different renderer, halves its render scale by default, and has not been
+# measured on this hardware by anyone.
 SWAP_TOTAL=$(awk '/^SwapTotal:/ {print $2}' /proc/meminfo 2>/dev/null)
 MEM_TOTAL=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null)
 echo "memory    MemTotal ${MEM_TOTAL:-?} kB, SwapTotal ${SWAP_TOTAL:-?} kB"
 if [ "${SWAP_TOTAL:-0}" -eq 0 ] 2>/dev/null; then
-    echo "memory    no swap configured. The Dramatic Shape voxel mod peaks around"
-    echo "memory    750 MB and may be OOM-killed on a 1 GB device. Install Swap.pak"
-    echo "memory    and create 512 MB on INTERNAL storage if you want to enable it."
+    echo "memory    no swap configured. The voxel mod can be OOM-killed on a 1 GB"
+    echo "memory    device once enough of the map is in memory. Install Swap.pak and"
+    echo "memory    create 512 MB on INTERNAL storage if you want to enable it."
 fi
 
 ###############################################################################
@@ -300,6 +306,10 @@ fi
 ###############################################################################
 
 GAME="$PAK_DIR/game"
+
+# LOVE's save directory for this identity. Defined here rather than beside the
+# ROM scan that reads it, because the legacy sweep below needs it too.
+SAVEROOT="$STATE/love/pokemon-love2d"
 
 # --- leftovers from the v0.1.0 Emu layout ----------------------------------
 # An in-place upgrade installs the Tool pak but cannot remove the old one, so a
@@ -337,6 +347,106 @@ for old in "$SD"/Emus/*/Gen1Recomp.pak; do
     echo "legacy      $old"
     echo "legacy    Delete it to reclaim ~31 MB. Nothing here reads it any more."
 done
+
+# --- mods this pak used to ship --------------------------------------------
+# A pak update MERGES over the old install, so a card coming from v0.3.0 still
+# holds game/mods/DRAMATIC_SHAPE/ after being updated. Left alone, that breaks
+# the new mod rather than the old one, and does it silently:
+#
+#   DRAMALESS_SHAPE's manifest declares conflicts:["DRAMATIC_SHAPE",...], and the
+#   engine's rule is that the DECLARING mod loses (src/mods/Loader.lua,
+#   _enforceConflicts). Neither mod sets "experimental", so the loader enables
+#   both, the new one is failed for the conflict it declared, and the player
+#   carries on running the old copy with nothing to say so.
+#
+# These folders are pak-owned -- this project put them there -- so they are
+# removed outright, the same call taken for the v0.1.0 ROM folder above.
+# Mirrors contracts.legacy_mod_ids in upstream.lock; verify.sh asserts the two
+# agree. There is no jq on the device and the lock is not shipped, so the ids
+# are spelled out here.
+LEGACY_MODS="DRAMATIC_SHAPE"
+
+for id in $LEGACY_MODS; do
+    [ -d "$GAME/mods/$id" ] || continue
+    echo "legacy    removing $id, which this pak no longer ships:"
+    echo "legacy      $GAME/mods/$id"
+    if rm -rf "$GAME/mods/$id" 2>/dev/null; then
+        echo "legacy    removed. Leaving it would have disabled the mod that replaced it."
+    else
+        echo "legacy    WARNING: could not remove it. Delete it by hand, or the voxel mod"
+        echo "legacy    will lose its own conflict check and fail to load."
+    fi
+done
+
+# A copy the PLAYER installed is theirs, not ours -- report it and stop there.
+# The engine looks for mods in the save directory as well as the game folder, so
+# one here has exactly the same effect on the conflict check.
+for id in $LEGACY_MODS; do
+    [ -d "$SAVEROOT/mods/$id" ] || continue
+    echo "legacy    you have your own copy of $id installed:"
+    echo "legacy      $SAVEROOT/mods/$id"
+    echo "legacy    It is not ours to delete, but the bundled voxel mod declares a"
+    echo "legacy    conflict with it and will be the one that fails to load. Remove or"
+    echo "legacy    disable it from the in-game mod manager to use the bundled mod."
+done
+
+# --- the mod catalogue, seeded once ----------------------------------------
+# The engine ships no catalogue and asks the player to add one, because adding
+# an index means trusting whoever publishes it (src/mods/ModIndex.lua). That is
+# a sound default, but the "ask" costs a URL typed on a d-pad keyboard, and the
+# official index is published by the engine's own author -- so this pak enters
+# it once and leaves the choice alone thereafter.
+#
+# ONLY on a genuinely fresh install, and the .bak/.tmp test is not paranoia:
+# SaveData.loadOptions RECOVERS from those copies when options.lua is missing
+# (a guard added after an interrupted rewrite lost people every setting they
+# had). Writing our file on a card that still holds a backup would step in
+# front of that recovery and destroy the lot. Where no options file exists at
+# all, a partial one is safe -- loadOptions merges whatever it reads over the
+# defaults.
+#
+# Seeded once, never re-added: delete the index in-game and it stays deleted,
+# because options.lua exists by then.
+#
+# The four URLs mirror ModIndex.resolveSource's own expansion of "owner/repo".
+# Kept as a contract in upstream.lock (contracts.mod_index) so verify.sh can
+# catch this copy drifting from it.
+#
+# THE "[1] =" IS LOAD-BEARING. options.lua is not read by Lua: the engine parses
+# it with src/core/SaveSerializer.lua, a restricted reader that accepts only
+# `ident = value` or `[key] = value` and fails on a positional entry. Writing
+# the list element as a bare "{" cost a release-blocking bug -- the file failed
+# to parse ("parse error at byte 31: expected key"), loadOptions fell back to
+# defaults, and the engine then wrote that full snapshot back, erasing the seed
+# and logging nothing a player would ever see. verify.sh now decodes this exact
+# file with the engine's own parser.
+MOD_INDEX_OWNER="bryanthaboi"
+MOD_INDEX_REPO="gen1recomp-mod-index"
+
+OPTS="$SAVEROOT/options.lua"
+if [ ! -e "$OPTS" ] && [ ! -e "$OPTS.bak" ] && [ ! -e "$OPTS.tmp" ]; then
+    if mkdir -p "$SAVEROOT" 2>/dev/null && cat > "$OPTS" <<EOF
+return {
+  modIndexes = {
+    [1] = {
+      url = "$MOD_INDEX_OWNER/$MOD_INDEX_REPO",
+      feed = "https://$MOD_INDEX_OWNER.github.io/$MOD_INDEX_REPO/data/index.json",
+      base = "https://$MOD_INDEX_OWNER.github.io/$MOD_INDEX_REPO/",
+      fallback = "https://raw.githubusercontent.com/$MOD_INDEX_OWNER/$MOD_INDEX_REPO/main/site/data/index.json",
+      label = "$MOD_INDEX_OWNER/$MOD_INDEX_REPO",
+    },
+  },
+}
+EOF
+    then
+        echo "mods      fresh install: added the official mod catalogue to Find mods"
+        echo "mods        $MOD_INDEX_OWNER/$MOD_INDEX_REPO"
+        echo "mods      Remove it in-game if you would rather not browse it; it is not re-added."
+    else
+        echo "mods      could not seed the mod catalogue (continuing without it)"
+        rm -f "$OPTS" 2>/dev/null
+    fi
+fi
 
 # Diagnostic hook, NOT a feature.
 #
@@ -397,8 +507,8 @@ export POKEPORT_GBCFX="${POKEPORT_GBCFX:-0}"
 # On Linux the engine tries zenity/kdialog (absent here), then falls back to
 # findPendingRom(), which scans the PhysFS root for a 1 MiB .gb/.gbc. LOVE mounts
 # the save directory into that root, so a dump dropped at the top of the save dir
-# is found; anything in a subfolder is invisible.
-SAVEROOT="$STATE/love/pokemon-love2d"
+# is found; anything in a subfolder is invisible. SAVEROOT is set at the top of
+# this section.
 ROM_SHA256_RED=5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b
 ROM_SHA256_BLUE=2a951313c2640e8c2cb21f25d1db019ae6245d9c7121f754fa61afd7bee6452d
 ROM_SHA256_YELLOW=8cbaa499397e4f1a679c992ea9382a2dd7942ab398b48c19829c2d9529de47bf

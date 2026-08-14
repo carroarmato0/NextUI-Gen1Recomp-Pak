@@ -73,6 +73,13 @@ run_launch() {
 
 log_of() { cat "$1/SDCARD/.userdata/tg5050/logs/Gen1Recomp.txt" 2>/dev/null; }
 
+# Cartridge dumps staged in the save root. Counts dumps rather than every file,
+# because launch.sh also seeds options.lua into this directory on a fresh
+# install -- and these assertions have always been about how many dumps landed.
+count_dumps() {
+    find "$1" -maxdepth 1 -type f \( -name '*.gb' -o -name '*.gbc' \) 2>/dev/null | wc -l
+}
+
 # --------------------------------------------------------------------------
 echo
 echo "no ROM present -- must still launch, and say why"
@@ -145,14 +152,14 @@ check $? "leaves the user's own file untouched"
 # on the import folder's actual contents rather than on log text, which would
 # pass for the wrong reason.
 BR="$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d"
-[ -z "$(find "$BR" -name '._*' 2>/dev/null)" ] && [ "$(find "$BR" -type f | wc -l)" -eq 1 ]
+[ -z "$(find "$BR" -name '._*' 2>/dev/null)" ] && [ "$(count_dumps "$BR")" -eq 1 ]
 check $? "skips the AppleDouble decoy and imports exactly one file"
 
 # A rerun must not re-stage the dump that is already sitting there waiting to be
 # decoded. (It must still scan: see "imports a version added after an earlier
 # one" below for why skipping outright is wrong.)
 run_launch "$SB"
-[ "$(find "$BR" -type f | wc -l)" -eq 1 ]
+[ "$(count_dumps "$BR")" -eq 1 ]
 check $? "a rerun leaves the already-staged dump alone"
 rm -rf "$SB"
 
@@ -233,7 +240,7 @@ sed -i "s/2a951313c2640e8c2cb21f25d1db019ae6245d9c7121f754fa61afd7bee6452d/$B_SH
 sed -i "s/5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b/$R_SHA/" "$SB/pak/launch.sh"
 run_launch "$SB"
 BR="$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d"
-[ "$(find "$BR" -type f | wc -l)" -eq 2 ]
+[ "$(count_dumps "$BR")" -eq 2 ]
 check $? "both dumps imported (Blue sorts first but must not hide Red)"
 log_of "$SB" | grep -q "staged 2 dump"
 check $? "reports both imports"
@@ -275,7 +282,7 @@ check $? "identifies it as Yellow"
 log_of "$SB" | grep -q "matched Red"
 if [ $? -eq 0 ]; then bad "re-staged Red, which the engine had already decoded"
 else ok "leaves the already-decoded Red alone"; fi
-[ "$(find "$BR" -maxdepth 1 -type f | wc -l)" -eq 2 ]
+[ "$(count_dumps "$BR")" -eq 2 ]
 check $? "ends up with exactly the two dumps, Red staged and Yellow added"
 rm -rf "$SB"
 
@@ -399,6 +406,111 @@ run_launch "$SB"
 log_of "$SB" | grep -q "^legacy"
 if [ $? -eq 0 ]; then bad "warned about a legacy install that is not there"
 else ok "stays quiet on a clean card"; fi
+rm -rf "$SB"
+
+# --------------------------------------------------------------------------
+# A pak update merges over the old install, so the mod this pak used to ship is
+# still sitting in game/mods/ afterwards. Left there it disables the mod that
+# replaced it -- the new mod declares the conflict, and the declaring mod loses.
+echo
+echo "a mod this pak no longer ships is removed from the pak, reported in the save dir"
+SB="$(make_sandbox)"
+mkdir -p "$SB/pak/game/mods/DRAMATIC_SHAPE"
+printf 'stale' > "$SB/pak/game/mods/DRAMATIC_SHAPE/main.lua"
+mkdir -p "$SB/pak/game/mods/DRAMALESS_SHAPE"
+printf 'current' > "$SB/pak/game/mods/DRAMALESS_SHAPE/main.lua"
+run_launch "$SB"
+[ ! -d "$SB/pak/game/mods/DRAMATIC_SHAPE" ]
+check $? "removes the superseded mod from the pak"
+[ -d "$SB/pak/game/mods/DRAMALESS_SHAPE" ]
+check $? "leaves the mod that replaced it alone"
+log_of "$SB" | grep -q "removing DRAMATIC_SHAPE"
+check $? "says in the log which mod it removed"
+rm -rf "$SB"
+
+SB="$(make_sandbox)"
+# The player's own install is theirs. Report the consequence, delete nothing.
+mkdir -p "$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d/mods/DRAMATIC_SHAPE"
+run_launch "$SB"
+[ -d "$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d/mods/DRAMATIC_SHAPE" ]
+check $? "never deletes a copy the player installed themselves"
+log_of "$SB" | grep -q "you have your own copy of DRAMATIC_SHAPE"
+check $? "warns that the bundled mod will lose the conflict"
+rm -rf "$SB"
+
+# --------------------------------------------------------------------------
+# The mod catalogue is entered once, on a fresh install, and must never step in
+# front of the engine's own options recovery.
+echo
+echo "the mod catalogue is seeded once, and never over a recoverable options file"
+SAVE_REL=".userdata/shared/Gen1Recomp/love/pokemon-love2d"
+
+SB="$(make_sandbox)"
+run_launch "$SB"
+OPTS="$SB/SDCARD/$SAVE_REL/options.lua"
+[ -f "$OPTS" ]
+check $? "writes an options.lua on a fresh install"
+grep -q 'bryanthaboi/gen1recomp-mod-index' "$OPTS" 2>/dev/null
+check $? "seeds the official catalogue"
+grep -q 'feed = "https://bryanthaboi.github.io/gen1recomp-mod-index/data/index.json"' "$OPTS" 2>/dev/null
+check $? "expands the feed URL the way ModIndex.resolveSource does"
+# Decode it with the ENGINE'S OWN parser, not with Lua and not by eye.
+# options.lua is read by src/core/SaveSerializer.lua, a restricted reader that
+# rejects positional table entries -- and asserting on the text we wrote is
+# exactly what let a bare "{" ship: every text check passed while the engine
+# failed at byte 31, fell back to defaults, and erased the seed.
+SER="$ROOT/build/Gen1Recomp.pak/game/src/core/SaveSerializer.lua"
+if [ -f "$SER" ] && command -v lua >/dev/null 2>&1; then
+    lua -e '
+      package.path = "'"$ROOT/build/Gen1Recomp.pak/game"'/?.lua;" .. package.path
+      local S = dofile("'"$SER"'")
+      local f = assert(io.open("'"$OPTS"'", "r"))
+      local body = f:read("*a"); f:close()
+      local t, err = S.decode(body)
+      if not t then error("engine parser rejected options.lua: " .. tostring(err)) end
+      local rows = t.modIndexes
+      assert(type(rows) == "table", "modIndexes missing")
+      assert(type(rows[1]) == "table", "modIndexes[1] is not a table -- positional entry lost")
+      assert(type(rows[1].feed) == "string", "row.feed must be a string or ModIndex.sources() drops it")
+    ' >/dev/null 2>&1
+    check $? "the engine's own SaveSerializer decodes it, with a usable modIndexes[1].feed"
+else
+    echo "  --   engine parser check skipped (need lua and a staged build)"
+fi
+log_of "$SB" | grep -q "added the official mod catalogue"
+check $? "says so in the log rather than doing it silently"
+rm -rf "$SB"
+
+SB="$(make_sandbox)"
+# Second launch: the player may have deleted the index. Never re-add it.
+mkdir -p "$SB/SDCARD/$SAVE_REL"
+printf 'return {\n  musicVol = 3,\n}\n' > "$SB/SDCARD/$SAVE_REL/options.lua"
+run_launch "$SB"
+grep -q 'modIndexes' "$SB/SDCARD/$SAVE_REL/options.lua"
+if [ $? -eq 0 ]; then bad "re-added the catalogue over an existing options.lua"
+else ok "leaves an existing options.lua alone"; fi
+grep -q 'musicVol = 3' "$SB/SDCARD/$SAVE_REL/options.lua"
+check $? "does not disturb settings already there"
+rm -rf "$SB"
+
+SB="$(make_sandbox)"
+# The hazard: options.lua missing but a backup present. SaveData.loadOptions
+# heals from .bak, so writing ours here would destroy every setting.
+mkdir -p "$SB/SDCARD/$SAVE_REL"
+printf 'return {\n  musicVol = 5,\n}\n' > "$SB/SDCARD/$SAVE_REL/options.lua.bak"
+run_launch "$SB"
+[ ! -e "$SB/SDCARD/$SAVE_REL/options.lua" ]
+check $? "writes nothing when only a .bak survives, so recovery still runs"
+[ -f "$SB/SDCARD/$SAVE_REL/options.lua.bak" ]
+check $? "leaves the backup untouched"
+rm -rf "$SB"
+
+SB="$(make_sandbox)"
+mkdir -p "$SB/SDCARD/$SAVE_REL"
+printf 'return {}\n' > "$SB/SDCARD/$SAVE_REL/options.lua.tmp"
+run_launch "$SB"
+[ ! -e "$SB/SDCARD/$SAVE_REL/options.lua" ]
+check $? "writes nothing when only a staged .tmp survives"
 rm -rf "$SB"
 
 # --------------------------------------------------------------------------
