@@ -19,6 +19,22 @@ on:
 # is therefore a draft release plus an issue carrying the device checklist, and a
 # human publishes after running scripts/verify-device.sh.
 #
+# EVERYTHING THIS WORKFLOW WRITES IS ROLLING -- one branch, one draft, one issue,
+# always describing the newest upstream release. Upstream ships every few days and
+# a repin is often skipped, so keying each artifact to the upstream tag left three
+# dead branches, two drafts fighting over one version number and two stale
+# checklists behind in four days. A superseded repin carries no information: the
+# lock is regenerated wholesale from the newest release, so the older branch is
+# not a smaller step toward it, just an older answer.
+#
+# There is no PR step, for two reasons. This repo has "Allow GitHub Actions to
+# create and approve pull requests" off, so `gh pr create` failed on every run
+# with "GitHub Actions is not permitted to create or approve pull requests" --
+# masked by a `|| echo "PR already exists"` that swallowed the real error and let
+# the run go green. And a PR whose diff is only ever two generated files adds a
+# review surface without adding information: review the branch, which the
+# checklist issue links as a compare against main.
+#
 # Long issue/release bodies live in .github/templates/ rather than inline heredocs:
 # unindented heredoc content terminates a YAML block scalar, and the templates are
 # easier to review as prose anyway.
@@ -26,7 +42,6 @@ on:
 permissions:
   contents: write
   issues: write
-  pull-requests: write
 
 jobs:
   watch:
@@ -132,55 +147,94 @@ jobs:
           set -euo pipefail
           sed "s|@TAG@|${{ steps.build.outputs.upstream_tag }}|g" \
             .github/templates/contract-failure.md > /tmp/body.md
-          gh issue create \
-            --title "Upstream ${{ steps.build.outputs.upstream_tag }} breaks a contract this pak depends on" \
-            --body-file /tmp/body.md
+          title="Upstream ${{ steps.build.outputs.upstream_tag }} breaks a contract this pak depends on"
+          # Rolling, like the rest: upstream releasing daily while a contract stays
+          # broken would otherwise file the same issue every morning.
+          gh label create upstream-contract --color B60205 --force \
+            --description "The single rolling contract-failure report" >/dev/null
+          open="$(gh issue list --label upstream-contract --state open \
+            --json number -q '.[0].number // empty')"
+          if [ -n "$open" ]; then
+            gh issue edit "$open" --title "$title" --body-file /tmp/body.md
+            gh issue comment "$open" \
+              --body "Still broken as of ${{ steps.build.outputs.upstream_tag }}. Body updated for that tag."
+          else
+            gh issue create --title "$title" --body-file /tmp/body.md \
+              --label upstream-contract
+          fi
           exit 1
 
       - name: Package
         run: scripts/release.sh --skip-verify
 
-      - name: Open a PR with the new pins
-        id: pr
-        env:
-          GH_TOKEN: ${{ github.token }}
+      # One branch, force-pushed, always holding the newest repin. Force is safe
+      # here in a way it would not be on a human branch: the two files on it are
+      # regenerated from scratch every run, so there is nothing on the old tip
+      # that is not either superseded or still in main.
+      - name: Push the rolling repin branch
+        id: branch
         run: |
           set -euo pipefail
-          branch="upstream/${{ steps.build.outputs.upstream_tag }}"
+          branch=upstream/next
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b "$branch"
+          git checkout -B "$branch"
           git add upstream.lock pak.json
           git commit -m "Update to Gen1Recomp ${{ steps.build.outputs.upstream_version }} (${{ steps.bump.outputs.new_version }})"
-          git push -u origin "$branch" --force
-          gh pr create \
-            --title "Update to Gen1Recomp ${{ steps.build.outputs.upstream_version }} (${{ steps.bump.outputs.new_version }})" \
-            --body "Automated repin. Static and contract checks passed; **not verified on hardware**. Work the device checklist issue before publishing the draft release." \
-            --head "$branch" || echo "PR already exists"
+          git push origin "$branch" --force
 
-      - name: Create a DRAFT release
+      - name: Refresh the DRAFT release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          tag="${{ steps.bump.outputs.new_version }}"
+          # The pak version is patch+1 off MAIN, so every untaken repin proposes the
+          # same tag. A draft on it is a previous repin nobody took -- replace it.
+          # A PUBLISHED release on it means main was never bumped after a release,
+          # which is a human mistake this must not paper over.
+          state="$(gh release view "$tag" --json isDraft -q .isDraft 2>/dev/null || echo absent)"
+          case "$state" in
+            true)
+              echo "Replacing the untaken draft on $tag"
+              gh release delete "$tag" --yes
+              ;;
+            false)
+              echo "::error::$tag is already published -- refusing to touch it. Bump pak.json on main."
+              exit 1
+              ;;
+          esac
           sed "s|@UPSTREAM@|${{ steps.build.outputs.upstream_version }}|g" \
             .github/templates/draft-notes.md > /tmp/notes.md
-          gh release create "${{ steps.bump.outputs.new_version }}" --draft \
-            --target "${{ steps.pr.outputs.branch }}" \
-            --title "${{ steps.bump.outputs.new_version }} (Gen1Recomp ${{ steps.build.outputs.upstream_version }})" \
+          gh release create "$tag" --draft \
+            --target "${{ steps.branch.outputs.branch }}" \
+            --title "$tag (Gen1Recomp ${{ steps.build.outputs.upstream_version }})" \
             --notes-file /tmp/notes.md \
             dist/Gen1Recomp.pak.zip dist/Gen1Recomp.pakz
 
-      - name: Open the device verification checklist
+      - name: Update the device verification checklist
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           sed -e "s|@NEW@|${{ steps.bump.outputs.new_version }}|g" \
               -e "s|@UPSTREAM@|${{ steps.build.outputs.upstream_version }}|g" \
-              -e "s|@BRANCH@|${{ steps.pr.outputs.branch }}|g" \
+              -e "s|@BRANCH@|${{ steps.branch.outputs.branch }}|g" \
             .github/templates/device-checklist.md > /tmp/checklist.md
-          gh issue create \
-            --title "Verify ${{ steps.bump.outputs.new_version }} (Gen1Recomp ${{ steps.build.outputs.upstream_version }}) on device" \
-            --body-file /tmp/checklist.md
+          title="Verify ${{ steps.bump.outputs.new_version }} (Gen1Recomp ${{ steps.build.outputs.upstream_version }}) on device"
+          gh label create upstream-repin --color 0E8A16 --force \
+            --description "The single rolling repin checklist" >/dev/null
+          open="$(gh issue list --label upstream-repin --state open \
+            --json number -q '.[0].number // empty')"
+          if [ -n "$open" ]; then
+            # The body is REPLACED, ticks and all, on purpose: a box ticked against
+            # an older engine build is not evidence about this one, and leaving it
+            # ticked would read as though it were.
+            gh issue edit "$open" --title "$title" --body-file /tmp/checklist.md
+            note="Repinned to Gen1Recomp ${{ steps.build.outputs.upstream_version }};"
+            gh issue comment "$open" --body "$note the checklist above was reset for it."
+          else
+            gh issue create --title "$title" --body-file /tmp/checklist.md \
+              --label upstream-repin
+          fi
