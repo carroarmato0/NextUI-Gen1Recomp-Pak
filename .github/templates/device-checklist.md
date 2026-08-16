@@ -8,6 +8,10 @@ scripts/build.sh
 DEPLOY_PLATFORM=tg5050 scripts/verify-device.sh
 ```
 
+`@BRANCH@` is rolling and force-pushed: it always holds the newest repin, and
+this issue is rewritten to match. There is no PR — read the diff as
+[main...@BRANCH@](../../compare/main...@BRANCH@).
+
 ### Checked by `verify-device.sh`
 
 - [ ] A GLES renderer was created
@@ -37,8 +41,8 @@ DEPLOY_PLATFORM=tg5050 scripts/verify-device.sh
 - [ ] Update the README's **Tested on** table with what was actually run. Leave
       untested devices marked untested rather than assuming they behave the same
 - [ ] Fill in the real voxel-mod numbers in the README's 3D section
-- [ ] Merge the repin PR
-- [ ] Publish the draft release
+- [ ] Merge `@BRANCH@` into main
+- [ ] Publish the draft release, and close this issue
 
 Publishing makes this live in the Pak Store for everyone who has the pak
 installed, so an unverified publish ships a possible black screen to all of them.
