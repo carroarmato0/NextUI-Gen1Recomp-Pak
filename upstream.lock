@@ -15,11 +15,11 @@
   ],
   "gen1recomp": {
     "repo": "bryanthaboi/gen1recomp",
-    "tag": "v0.1.81",
-    "version": "0.1.81",
-    "asset": "gen1recomp-0.1.81-rg34xxsp-stockos64-mod.zip",
-    "sha256": "bffe57c0d1c4a43689b2b6f089cc1f960a01372e63f3fd60a17d32558f581d5c",
-    "size": 6627666
+    "tag": "v0.1.98",
+    "version": "0.1.98",
+    "asset": "gen1recomp-0.1.98-rg34xxsp-stockos64-mod.zip",
+    "sha256": "a3f3c464cc75d02a73a2af92c53f4edc6def5640c0f9e099d2b19ddf41fd3c82",
+    "size": 8124476
   },
   "game_payload": {
     "_comment": [
@@ -41,9 +41,9 @@
       "it is the exact LOVE build upstream tested this game version against, and it is",
       "hash-pinned per file. Nothing here is compiled either way; the game is Lua."
     ],
-    "asset": "gen1recomp-0.1.81.love",
-    "sha256": "c493660ac9f472d170468741089e7894a470dfcee85e49bca8d59270273108cb",
-    "size": 4442669
+    "asset": "gen1recomp-0.1.98.love",
+    "sha256": "a28b914f5265a52132cb743ba632e1c7bb81f5eb989829816c571adde798db55",
+    "size": 5947274
   },
   "love_runtime": {
     "version": "11.5",
@@ -143,7 +143,25 @@
       "The tree is shipped VERBATIM. There is nothing worth stripping: 2.0 dropped VR, the",
       "OpenXR loader, the Stadium models and the carved voxel sprites, taking the mod from 19 MB",
       "installed to 1.8 MB. What is left is lib/ (932K), data/ (268K) and assets/ (308K of",
-      "markdown documentation only -- no runtime assets)."
+      "markdown documentation only -- no runtime assets).",
+      "",
+      "WHY THIS IS STILL 2.0.1 AND NOT 2.0.2, checked 2026-08-16: the 2.0.2 release zip ships NO",
+      "licence file anywhere in its tree, so build.sh refuses it ('voxel mod is missing LICENSE').",
+      "That is the guard working, not a build fault -- attribution travelling inside the artifact",
+      "is the whole reason this fork is the shippable one. The WORK is still licensed: LICENSE is",
+      "present at the root of the repo at tag v2.0.2, so this reads as a packaging slip, and 2.0.2",
+      "also converted every file CRLF -> LF, which is what a hand re-zip elsewhere would do. Asked",
+      "for a re-cut in artyrambles/DRAMALESS_SHAPE#42; move the pin when an asset carries LICENSE.",
+      "",
+      "Nothing is lost by waiting. Ignoring line endings the whole 2.0.1 -> 2.0.2 delta is: the",
+      "version string, the manifest game_version floor (>=0.1.37 -> >=0.1.87), and the removal of",
+      "a baseroms/ folder holding one placeholder .txt. The author removed it because 0.1.91+",
+      "blocks a mod archive with a non-empty baseroms/ -- but that check is in the install-from-zip",
+      "path (LauncherMods._installZipInner), and we pre-stage into game/mods/ instead, so it never",
+      "applies to the bundled copy. Confirmed on a Brick 2026-08-16: 2.0.1, baseroms/ and all, runs",
+      "on 0.1.98. The author also reports 2.0.2 is slightly SLOWER, which a GPU-bound Brick cannot",
+      "spend. Note the 2.0.2 release notes claim the zip was flattened; it was not -- the asset is",
+      "still nested under DRAMALESS_SHAPE-2.0.2/, so archive_root above stays correct either way."
     ],
     "name": "DRAMALESS_SHAPE",
     "version": "2.0.1",
