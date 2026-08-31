@@ -194,17 +194,37 @@ the pak directory — a pak update would otherwise destroy them.
   presets and the tier rule above means this hardware never enters that path; it took the pak from
   22 MB to 37 MB and stripping puts it at 29 MB. `build.sh` copies **all** of `libs.aarch64/` and
   then removes by name — never an allowlist copy, or the next new dependency becomes invisible.
-- **Silver and Crystal exist upstream but this pak cannot import them yet, and the blocker is hash
-  algebra.** `GameVersion.lua` declares six versions as of 0.2.43 (Crystal with two revisions), and
-  the payload ships `rom_manifest_silver.json` and `rom_manifest_crystal.json`. `launch.sh`'s
-  `VERSIONS` is still `red blue yellow gold`. The scan matches on **SHA-256** because the device has
-  no `sha1sum`, and **everything upstream provides is SHA-1** — `GameVersion.lua` and every
-  `tools/rom_manifest_*.json` carry `romSha1` and nothing else. One cannot be derived from the
-  other, so adding a version needs its SHA-256 taken from a real dump. **Do not guess one to close
-  the gap**: a wrong value makes the scan match nothing and log nothing, which is exactly how Gold
-  stayed hidden for two releases. (Whether a third-party DAT publishes SHA-256 for these carts is
-  unchecked — and a hash taken from one would still want confirming against a real dump before it
-  is trusted, since the failure is silent.)
+- **An engine update can invalidate the ROM cache, and the import gate must NOT track that.**
+  `CacheContract.isReady()` = the marker matches **and** `allRequiredFilesExist()`. Upstream grows
+  `CacheContract.REQUIRED_FILES` between releases — 0.2.x added entries deliberately, one commented
+  *"Caches made before RomExtractorGen2:extractText must be rebuilt"* — so a cache built by an older
+  engine goes stale and the version reappears asking to be imported. Measured on a Brick upgrading
+  0.1.98 -> 0.2.43: blue short 2 required files, yellow 4, gold 9, red 0 (already rebuilt). The
+  marker was NOT the issue — all four still read `rom-cache-v10:<sha1>` correctly. `saves/` is
+  untouched by this; only the decoded cache is rebuilt.
+  **`launch.sh`'s gate therefore keys on the STAGED DUMP, never the cache.** It used to check
+  `$SAVEROOT/<v>/data/generated` or `rom-cache.complete`, i.e. a hand copy of a contract that moves —
+  so it logged "every version already imported", skipped the scan, and a player whose dump was no
+  longer staged got the engine asking for a cartridge the pak refused to hand over. Do not
+  "improve" this by mirroring the required-file list: it changes every few releases and the failure
+  is silent. Staging costs ~1 MiB per Gen 1 cart and ~2 MiB per Gen 2 one, and buys automatic
+  recovery from every future invalidation. Verified on a Brick 2026-08-31 by deleting a staged dump
+  with its stale cache left in place: the scan re-staged it.
+- **The version table is ONE list, and adding a version is one line.** `ROM_TABLE` in `launch.sh`
+  holds `id label sha256` per row; `VERSIONS`, the staged-dump match, the scan match and the
+  accepted-dumps listing all derive from it. They were four parallel lists, which is how Gold got
+  into some and not others. `rom_match` is fed by **redirection, never a pipe** — a `while read` on
+  the right of a pipe runs in a subshell and every assignment is discarded — and it reads the global
+  `$_sha_want` rather than taking `$1`, because `verify.sh` forbids `$1/$@/$*` anywhere in
+  `launch.sh` and cannot tell a positional parameter in a helper from a launch argument.
+- **Silver is supported; Crystal is not, and the blocker is that only SHA-1 is published.**
+  `GameVersion.lua` declares six versions as of 0.2.43 (Crystal with two revisions). Silver's
+  SHA-256 was measured on a Brick, 2026-08-31, from the owner's own dump whose SHA-1 matched the
+  engine's `silver` row exactly; the ROM was read to hash it and nothing kept. No Crystal dump has
+  been available. Everything upstream publishes is SHA-1 (`GameVersion.lua`, every
+  `tools/rom_manifest_*.json`), and SHA-256 cannot be derived from it. **Do not guess one**: a wrong
+  hash makes the scan match nothing and log nothing, which is how Gold stayed invisible for two
+  releases.
 - **Hand-installed mods go in `$PAK_DIR/mods/`, and that folder is the engine's choice, not ours.**
   `LauncherMods.adoptStrays()` runs once per session just before the MODS listing is built and
   **copies** strays into the save dir's `mods/`. It scans `SaveData.gameFolders()` — on Linux
@@ -217,11 +237,12 @@ the pak directory — a pak update would otherwise destroy them.
   `verify.sh` asserts the folder and note ship, that it ships **empty** (a mod staged there would be
   adopted into every player's save dir silently), and that `launch.sh` recreates it. Not yet watched
   on hardware — it is traced through the code only, and belongs on the device checklist.
-- **`verify.sh`'s bashism screen greps the WHOLE of `launch.sh`, comments included.** `\bsource\b`
-  is in the pattern, so writing the ordinary English word "source" in a comment fails the build. Two
-  other `verify.sh` habits worth copying rather than rediscovering: use `[$]` in a `matches` regex,
-  never `\$`, or shellcheck raises SC2016; and `code_only` strips comments, so a check that forbids
-  a *behaviour* will not be tripped by prose describing it.
+- **`verify.sh`'s bashism screen greps the WHOLE of `launch.sh`, comments included.** The pattern
+  holds `\bsource\b` and `\bfunction [a-zA-Z_]`, so the ordinary English phrases "the source" and
+  "function parameter" in a *comment* both fail the build. Each cost a round trip here. Two other
+  `verify.sh` habits worth copying rather than rediscovering: use `[$]` in a `matches` regex, never
+  `\$`, or shellcheck raises SC2016; and `code_only` strips comments, so a check that forbids a
+  *behaviour* is not tripped by prose describing it — only the screens that read the raw file are.
 - **The device has no CA store.** `/etc/ssl/certs`, `/etc/ssl/cert.pem` and `/etc/pki` are all
   absent, and the engine does HTTPS by shelling out to `curl` (`src/net/Fetch.lua`). Without a
   bundle every request fails with curl exit 60, surfacing in the mod manager as a failed update

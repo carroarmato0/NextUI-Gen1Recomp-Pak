@@ -305,7 +305,8 @@
       "red": "ea9bcae617fdf159b045185467ae58b2e4a48b9a",
       "blue": "d7037c83e1ae5b39bde3c30787637ba1d4c48ce2",
       "yellow": "cc7d03262ebfaf2f06772c1a480c7d9d5f4a38e1",
-      "gold": "d8b8a3600a465308c9953dfa04f0081c05bdcb94"
+      "gold": "d8b8a3600a465308c9953dfa04f0081c05bdcb94",
+      "silver": "49b163f7e57702bc939d642a18f591de55d92dae"
     },
     "_rom_sha256_comment": [
       "What launch.sh actually matches on. These devices ship sha256sum and md5sum",
@@ -321,13 +322,24 @@
       "GOLD IS 2 MiB, not 1. launch.sh filters candidates by size before hashing, and",
       "a 1 MiB-only filter skipped every Gold dump before its hash was computed --",
       "reporting nothing wrong. The engine accepts both sizes",
-      "(RomImporter.isAcceptedRomSize); the filter must accept both too."
+      "(RomImporter.isAcceptedRomSize); the filter must accept both too.",
+      "",
+      "SILVER was added in v0.4.3, measured the same way on a Brick, 2026-08-31: the owner's own",
+      "dump hashed to the SHA-1 GameVersion.lua declares for silver, so the SHA-256 taken from the",
+      "same file is the canonical one. The ROM was read to hash it and nothing was kept.",
+      "",
+      "CRYSTAL IS DELIBERATELY ABSENT. The engine declares it (with two revisions, 1.0 and 1.1) and",
+      "ships rom_manifest_crystal.json, but no Crystal dump has been available to hash. Only SHA-1",
+      "is published anywhere upstream, and SHA-256 cannot be derived from it. Do NOT add a guessed",
+      "or third-party value: a wrong hash makes the scan match nothing and log nothing, which is",
+      "exactly how Gold stayed invisible for two releases. Add it when a real dump can be hashed."
     ],
     "rom_sha256": {
       "red": "5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b",
       "blue": "2a951313c2640e8c2cb21f25d1db019ae6245d9c7121f754fa61afd7bee6452d",
       "yellow": "8cbaa499397e4f1a679c992ea9382a2dd7942ab398b48c19829c2d9529de47bf",
-      "gold": "fb0016d27b1e5374e1ec9fcad60e6628d8646103b5313ca683417f52b97e7e4e"
+      "gold": "fb0016d27b1e5374e1ec9fcad60e6628d8646103b5313ca683417f52b97e7e4e",
+      "silver": "72b190859a59623cbef6c49d601f8de52c1d2331b4f08a8d2acc17274fc19a8c"
     },
     "_device_tools_comment": [
       "Commands confirmed ABSENT on a Trimui Brick and a Smart Pro S running NextUI",

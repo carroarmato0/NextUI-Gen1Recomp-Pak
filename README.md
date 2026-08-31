@@ -28,7 +28,7 @@ Credit for the game itself belongs entirely upstream. This repository is packagi
 ## Requirements
 
 - **NextUI** on a TrimUI device — `tg5040` (Brick, Smart Pro, Brick Pro) or `tg5050` (Smart Pro S)
-- **Your own US Red, Blue, Yellow or Gold cartridge dump.** Only the canonical US ROMs are accepted — the three 1 MiB Gen 1 carts and the 2 MiB Gold cart; the engine verifies by SHA-1 and refuses anything else. Gen1Recomp 0.2.x has begun adding **Silver and Crystal**, but this pak does not import them yet — see [Silver and Crystal](#silver-and-crystal)
+- **Your own US Red, Blue, Yellow, Gold or Silver cartridge dump.** Only the canonical US ROMs are accepted — the three 1 MiB Gen 1 carts and the 2 MiB Gen 2 ones; the engine verifies by SHA-1 and refuses anything else. **Crystal** is declared by the engine but not supported here yet — see [Crystal](#crystal)
 - ~29 MB of card space, or ~27 MB if you build without the 3D mod
 - For the 3D voxel mod: [Swap.pak](https://github.com/carroarmato0/NextUI-Swap-Pak). See [3D voxel mod](#3d-voxel-mod)
 
@@ -65,6 +65,16 @@ Deleting the ROM folder already removes the stale entry, so this is only disk sp
 
 **Your saves are not affected.** They have always lived in `.userdata/shared/Gen1Recomp/`, which none of this touches.
 
+## Updating from v0.4.1 or earlier: you will re-import
+
+**Your games will look like they have vanished. They have not, and your save files are safe.**
+
+Gen1Recomp 0.2.x needs more data out of a cartridge than earlier versions did — upstream added entries to its cache contract (`CacheContract.REQUIRED_FILES`), including one specifically so that caches built before a Gen 2 text extractor get rebuilt. The decoded copy the engine made from your dump is therefore incomplete, `CacheContract.isReady()` goes false, and the version reappears on the launcher asking to be imported.
+
+Only that decoded copy is rebuilt. Measured on a Brick upgrading 0.1.98 → 0.2.43: Blue was short 2 required files, Yellow 4, Gold 9, and the `saves/` folder was untouched throughout.
+
+Pick each version once on the Choose ROM screen and it comes back. Your dumps are still staged where the pak put them, so nothing is copied again and the rebuild takes about a minute per version. The launcher imports one version per visit, so expect to do it once per game you own.
+
 ## First run: your ROM
 
 Gen1Recomp needs a cartridge dump **once**. It verifies the ROM, decodes the game data into its own cache, and never reads the ROM again.
@@ -98,13 +108,13 @@ If you have several dumps, *Choose ROM* will often import a **different** editio
 
 The pak stages every dump it recognises at once, and on Linux the engine has no file picker to offer, so it falls back to importing the first cartridge in the folder that has not been imported yet (`findPendingRom`). It identifies that file by its SHA-1, so Blue's data always becomes Blue — the version you *selected* is simply not what the fallback consults. Keep launching and every version you own gets imported; the end state is correct, only the order is not yours to choose. Reported upstream.
 
-### Silver and Crystal
+### Crystal
 
-Gen1Recomp 0.2.x has started adding **Pokémon Silver and Crystal** — the engine declares both, and ships their import manifests. **This pak does not import them yet**, and a Silver or Crystal dump on your card is simply ignored.
+Gen1Recomp 0.2.x added **Silver and Crystal**. Silver is supported here as of v0.4.3. **Crystal is not**, and a Crystal dump on your card is ignored.
 
-The reason is mundane. These devices have no `sha1sum`, so the pak's ROM scan matches candidate dumps by **SHA-256** before copying them, while everything upstream publishes — and everything shipped in the payload — is SHA-1. There is no way to derive one from the other, and inventing a value would be worse than leaving it out: the scan would match nothing and say nothing, which is exactly how the Gold gap went unnoticed for two releases. Adding each version needs its SHA-256 taken from a real cartridge dump and confirmed on hardware.
+The reason is mundane. These devices have no `sha1sum`, so the pak's ROM scan matches candidate dumps by **SHA-256** before copying them, while everything upstream publishes — `GameVersion.lua` and every `tools/rom_manifest_*.json` — is SHA-1. One cannot be derived from the other, so each version needs its SHA-256 taken from a real cartridge dump. Silver's was measured on a Brick against the owner's own dump, whose SHA-1 matched the engine's `silver` row exactly. No Crystal dump has been available to do the same with, and inventing a value would be worse than leaving it out: the scan would match nothing and say nothing, which is exactly how the Gold gap went unnoticed for two releases.
 
-Red, Blue, Yellow and Gold are unaffected.
+Everything else is unaffected.
 
 ## 3D voxel mod
 

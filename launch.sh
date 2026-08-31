@@ -557,62 +557,125 @@ fi
 # the save directory into that root, so a dump dropped at the top of the save dir
 # is found; anything in a subfolder is invisible. SAVEROOT is set at the top of
 # this section.
-ROM_SHA256_RED=5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b
-ROM_SHA256_BLUE=2a951313c2640e8c2cb21f25d1db019ae6245d9c7121f754fa61afd7bee6452d
-ROM_SHA256_YELLOW=8cbaa499397e4f1a679c992ea9382a2dd7942ab398b48c19829c2d9529de47bf
-# Gold is Gen 2 and therefore 2 MiB, not 1 -- see the size filter below, which is
-# the reason a Gold dump was invisible to this scan when Gold first appeared.
-ROM_SHA256_GOLD=fb0016d27b1e5374e1ec9fcad60e6628d8646103b5313ca683417f52b97e7e4e
-
-# Every version the engine knows about, in GameVersion.ORDER. Adding one here is
-# the whole change needed: the set below, the count that ends the scan and the
-# match list are all driven off it.
-VERSIONS="red blue yellow gold"
-
-# Which versions the engine already has, as a space-delimited set. Its decoded
-# cache lives in a per-version subfolder -- red/, blue/, yellow/ (GameVersion.lua
-# cachePrefix) -- finished when rom-cache.complete or the generated data is
-# there. A dump still staged at the save-dir root counts too: findPendingRom()
-# picks it up on the next boot, and leaving it there is deliberate.
+# Every version the engine can import: id, display label, and the SHA-256 of the
+# canonical US dump.
 #
-# Per-version on purpose. This gate used to be all-or-nothing: any one staged
-# dump or decoded cache skipped the entire scan, for good. So a player who
-# imported Red and Blue and only later added a Yellow dump never got it -- the
-# scan that would have matched it never ran again, and the log said "already
-# imported" as though nothing were wrong. Found on a Smart Pro S, 2026-08-12.
+# ONE table. The version set, the staged-dump match, the scan match and the
+# "accepted dumps" listing further down are all derived from it. Those used to be
+# four parallel lists kept in step by hand, which is precisely what hid Gold: it
+# reached some of them and not others, and the scan reported nothing wrong.
+# Adding Crystal is now one line here plus one entry in upstream.lock.
+#
+# SHA-256, not the SHA-1 upstream publishes. These devices ship sha256sum and
+# md5sum but NO sha1sum (verified on a Trimui Brick, 2026-08-11), so the original
+# SHA-1 scan matched nothing at all -- silently. Every value here was taken from a
+# real cartridge dump and cross-checked on-device against that version's SHA-1 in
+# GameVersion.lua. verify.sh asserts they match contracts.rom_sha256.
+#
+# A wrong value fails SAFE: the engine still runs its own SHA-1 check at import
+# time, so the player lands on Choose ROM rather than on bad data.
+#
+# Gen 1 carts are 1 MiB and Gen 2 (Gold, Silver) are 2 MiB. Both sizes are
+# accepted by the filter in the scan below -- a 1 MiB-only filter is what made a
+# Gold dump invisible when Gold first appeared.
+ROM_TABLE="red Red 5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b
+blue Blue 2a951313c2640e8c2cb21f25d1db019ae6245d9c7121f754fa61afd7bee6452d
+yellow Yellow 8cbaa499397e4f1a679c992ea9382a2dd7942ab398b48c19829c2d9529de47bf
+gold Gold fb0016d27b1e5374e1ec9fcad60e6628d8646103b5313ca683417f52b97e7e4e
+silver Silver 72b190859a59623cbef6c49d601f8de52c1d2331b4f08a8d2acc17274fc19a8c"
+
+# rom_match -- with $_sha_want set, echo "<id> <label>" for a known dump, else
+# fail. It reads a global instead of taking a parameter on purpose: verify.sh
+# forbids $1/$@/$* anywhere in launch.sh, because a Tool pak is invoked with no
+# arguments and reading one was a real bug in the Emu layout. That check cannot
+# tell a positional parameter inside a helper from a launch argument, and the
+# check is worth more than the nicer signature.
+#
+# Fed by redirection, never a pipe: a `while read` on the right of a pipe runs in
+# a subshell, and every assignment made inside it would be discarded.
+rom_match() {
+    while read -r _id _label _sha; do
+        [ -n "$_id" ] || continue
+        if [ "$_sha" = "$_sha_want" ]; then
+            printf '%s %s' "$_id" "$_label"
+            return 0
+        fi
+    done <<ROMTABLE
+$ROM_TABLE
+ROMTABLE
+    return 1
+}
+
+VERSIONS=""
+while read -r _id _label _sha; do
+    [ -n "$_id" ] || continue
+    VERSIONS="$VERSIONS$_id "
+done <<ROMTABLE
+$ROM_TABLE
+ROMTABLE
+
+# Which versions already have a dump staged at the save-dir root.
+#
+# THE TEST IS THE STAGED DUMP, AND DELIBERATELY NOT THE ENGINE'S CACHE. This gate
+# used to check $SAVEROOT/<v>/data/generated or rom-cache.complete -- a hand copy
+# of the engine's cache contract. That contract MOVES. Gen1Recomp 0.2.x added new
+# entries to CacheContract.REQUIRED_FILES, so caches built by 0.1.98 became
+# incomplete, CacheContract.isReady() correctly went false, and the engine asked
+# for those ROMs again -- while this gate still saw the old directory, logged
+# "every version already imported" and skipped the scan. Measured on a Brick,
+# 2026-08-31, upgrading 0.1.98 -> 0.2.43: blue was short 2 required files,
+# yellow 4, gold 9. Red had already been rebuilt and was short none.
+#
+# We cannot track a contract that changes every few upstream releases, and
+# guessing at it is how you stranded someone. What we CAN guarantee is the one
+# thing the engine needs to heal itself: a dump it can re-import. So a version
+# counts as present when its dump is staged, and never otherwise.
+#
+# The engine ignores a staged dump for a version it has already imported
+# (findPendingRom takes the first NOT-ready one), so the only cost of leaving
+# them there is the disk -- about 1 MiB per Gen 1 cart and 2 MiB per Gen 2 one.
+# That buys automatic recovery from every future cache invalidation.
 HAVE=" "
-want_count=0
-for v in $VERSIONS; do
-    want_count=$((want_count + 1))
-    if [ -d "$SAVEROOT/$v/data/generated" ] || [ -f "$SAVEROOT/$v/rom-cache.complete" ]; then
-        HAVE="$HAVE$v "
-    fi
-done
-# Staged but not yet decoded. Hashing is the only way to tell which version a
-# staged dump is, and it is cheap here: a handful of files at most.
 for f in "$SAVEROOT"/*.gb "$SAVEROOT"/*.gbc; do
     [ -f "$f" ] || continue
-    case "$(sha256sum "$f" 2>/dev/null | cut -d' ' -f1)" in
-        "$ROM_SHA256_RED")    HAVE="$HAVE""red " ;;
-        "$ROM_SHA256_BLUE")   HAVE="$HAVE""blue " ;;
-        "$ROM_SHA256_YELLOW") HAVE="$HAVE""yellow " ;;
-        "$ROM_SHA256_GOLD")   HAVE="$HAVE""gold " ;;
-    esac
+    _sha_want=$(sha256sum "$f" 2>/dev/null | cut -d' ' -f1)
+    _m=$(rom_match) || continue
+    HAVE="$HAVE${_m%% *} "
 done
+
+want_count=0
 have_count=0
 for v in $VERSIONS; do
+    want_count=$((want_count + 1))
     case "$HAVE" in *" $v "*) have_count=$((have_count + 1)) ;; esac
 done
 
+# Staging is all this pak does. Whether a version is actually IMPORTED is the
+# engine's call, and it can revoke that call: an engine update that adds entries
+# to CacheContract.REQUIRED_FILES invalidates an older cache, and the version
+# reappears on the launcher asking to be imported. That is upstream working as
+# intended, not damage -- and it is why the gate above tracks dumps rather than
+# caches. Say so here, because on the launcher screen it looks like data loss.
+echo "rom       staging only; the engine decides what to import. After an engine"
+echo "rom       update it may rebuild a version's data and ask for it again -- the"
+echo "rom       dump stays staged, so picking that version once is all it needs."
+
 if [ "$have_count" -eq "$want_count" ]; then
-    echo "rom       every version already imported; skipping the scan"
+    echo "rom       a dump for every version is staged; skipping the scan"
 elif ! command -v sha256sum >/dev/null 2>&1; then
     # Degrade rather than guess. Copying an unverified 1 MiB file into the import
     # folder would just make the engine reject it later with less explanation.
     echo "rom       sha256sum unavailable on this device; skipping the scan."
     echo "rom       Use the game's Choose ROM screen instead."
 else
-    echo "rom       scanning for US Red/Blue/Yellow/Gold dumps"
+    _labels=""
+    while read -r _id _label _sha; do
+        [ -n "$_id" ] || continue
+        _labels="$_labels/$_label"
+    done <<ROMTABLE
+$ROM_TABLE
+ROMTABLE
+    echo "rom       scanning for US ${_labels#/} dumps"
     ROMS="${ROMS_PATH:-${SDCARD_PATH:-/mnt/SDCARD}/Roms}"
     imported=0
     scanned=0
@@ -671,13 +734,9 @@ else
                 || [ -n "$(find "$rom" -size 2097152c 2>/dev/null)" ] \
                 || continue
             sha=$(sha256sum "$rom" 2>/dev/null | cut -d' ' -f1)
-            case "$sha" in
-                "$ROM_SHA256_GOLD")   version=Gold;   vid=gold ;;
-                "$ROM_SHA256_RED")    version=Red;    vid=red ;;
-                "$ROM_SHA256_BLUE")   version=Blue;   vid=blue ;;
-                "$ROM_SHA256_YELLOW") version=Yellow; vid=yellow ;;
-                *) continue ;;
-            esac
+            _sha_want="$sha"
+            _m=$(rom_match) || continue
+            vid="${_m%% *}"; version="${_m#* }"
             # Already imported, or already staged from another folder: copying a
             # 1 MiB file the engine would only skip buys nothing.
             case "$HAVE" in *" $vid "*) continue ;; esac
@@ -709,10 +768,12 @@ else
         echo "rom       no match found. Starting the built-in launcher so you can"
         echo "rom       use its Choose ROM screen."
         echo "rom       Accepted dumps (US cartridges only), by SHA-256:"
-        echo "rom         Red    $ROM_SHA256_RED"
-        echo "rom         Blue   $ROM_SHA256_BLUE"
-        echo "rom         Yellow $ROM_SHA256_YELLOW"
-        echo "rom         Gold   $ROM_SHA256_GOLD"
+        while read -r _id _label _sha; do
+            [ -n "$_id" ] || continue
+            printf 'rom         %-6s %s\n' "$_label" "$_sha"
+        done <<ROMTABLE
+$ROM_TABLE
+ROMTABLE
         echo "rom       Check yours on the device with: sha256sum <file>"
     fi
 fi

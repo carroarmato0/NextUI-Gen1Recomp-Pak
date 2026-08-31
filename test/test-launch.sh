@@ -288,24 +288,60 @@ rm -rf "$SB"
 
 # --------------------------------------------------------------------------
 echo
-echo "stops scanning only when there is genuinely nothing left to import"
-SB="$(make_sandbox)"
-BR="$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d"
-# Every version launch.sh knows about, read from launch.sh itself rather than
+echo "the gate is the staged dump, not the engine's cache"
+
+# Every version launch.sh knows about, read out of its own table rather than
 # listed here: this test is about "all of them", and hard-coding three is what
 # made the scan stop before it ever looked for Gold.
-ALL_VERSIONS="$(sed -n 's/^VERSIONS="\(.*\)"/\1/p' "$ROOT/launch.sh")"
-# shellcheck disable=SC2086  # deliberate word split: VERSIONS is a space-separated list
+ALL_VERSIONS="$(sed -n '/^ROM_TABLE="/,/"$/p' "$ROOT/launch.sh" \
+                | sed -e 's/^ROM_TABLE="//' -e 's/"$//' | awk '{print $1}')"
+# Its dump hashes, in the same order, for staging fixtures below.
+ALL_SHAS="$(sed -n '/^ROM_TABLE="/,/"$/p' "$ROOT/launch.sh" \
+            | sed -e 's/^ROM_TABLE="//' -e 's/"$//' | awk '{print $3}')"
+[ "$(printf '%s\n' "$ALL_VERSIONS" | wc -l)" -ge 4 ]
+check $? "parsed the version table out of launch.sh ($(printf '%s' "$ALL_VERSIONS" | tr '\n' ' '))"
+
+# THE REGRESSION. A card upgraded from an older engine has a full set of cache
+# directories, but Gen1Recomp 0.2.x added required files to its cache contract,
+# so the engine rebuilds them and asks for the ROMs again. The old gate saw the
+# directories, said "already imported" and skipped the scan -- leaving the engine
+# asking for a dump the pak refused to stage. Measured on a Brick, 2026-08-31.
+SB="$(make_sandbox)"
+BR="$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d"
+# shellcheck disable=SC2086  # deliberate word split
 for v in $ALL_VERSIONS; do
     mkdir -p "$BR/$v/data/generated"
+    touch "$BR/$v/rom-cache.complete"
 done
-# Either marker counts: the engine writes rom-cache.complete beside the
-# generated data (RomImporter.lua MARKER_PATH, CacheFs.lua:425).
-rm -rf "$BR/yellow/data"; mkdir -p "$BR/yellow"; touch "$BR/yellow/rom-cache.complete"
+FIXTURE="$SB/SDCARD/Roms/Game Boy (GB)/Pokemon Red (USA).gb"
+head -c 1048576 /dev/urandom > "$FIXTURE"
+FIX_SHA="$(sha256sum "$FIXTURE" | cut -d' ' -f1)"
+sed -i "s/5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b/$FIX_SHA/" "$SB/pak/launch.sh"
+run_launch "$SB"
+log_of "$SB" | grep -q "looking in"
+check $? "still scans when caches exist but no dump is staged (the engine may rebuild)"
+[ -f "$BR/Pokemon Red (USA).gb" ]
+check $? "re-stages the dump so the engine can rebuild its cache unaided"
+rm -rf "$SB"
+
+# The other side: once a dump for every version is staged, there is nothing left
+# to do and the scan must not hash a 90-ROM card on every launch.
+SB="$(make_sandbox)"
+BR="$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d"
+mkdir -p "$BR"
+i=1
+for sha in $ALL_SHAS; do
+    # A staged file whose hash launch.sh will recognise: patch the table to
+    # expect this fixture's hash in place of the real one.
+    f="$BR/staged$i.gb"
+    head -c 1048576 /dev/urandom > "$f"
+    sed -i "s/$sha/$(sha256sum "$f" | cut -d' ' -f1)/" "$SB/pak/launch.sh"
+    i=$((i+1))
+done
 head -c 1048576 /dev/urandom > "$SB/SDCARD/Roms/Game Boy (GB)/cart.gb"
 run_launch "$SB"
-log_of "$SB" | grep -q "every version already imported"
-check $? "skips the scan once every version is imported"
+log_of "$SB" | grep -q "a dump for every version is staged"
+check $? "skips the scan once a dump for every version is staged"
 log_of "$SB" | grep -q "looking in"
 if [ $? -eq 0 ]; then bad "hashed ROM folders with nothing left to import"
 else ok "hashes nothing when there is nothing left to import"; fi
