@@ -205,6 +205,23 @@ the pak directory — a pak update would otherwise destroy them.
   stayed hidden for two releases. (Whether a third-party DAT publishes SHA-256 for these carts is
   unchecked — and a hash taken from one would still want confirming against a real dump before it
   is trusted, since the failure is silent.)
+- **Hand-installed mods go in `$PAK_DIR/mods/`, and that folder is the engine's choice, not ours.**
+  `LauncherMods.adoptStrays()` runs once per session just before the MODS listing is built and
+  **copies** strays into the save dir's `mods/`. It scans `SaveData.gameFolders()` — on Linux
+  `getSource()` and `getSourceBaseDirectory()`. We exec `love.aarch64 "$PAK_DIR/game"`, so the first
+  is `game/`, which `isReadableRoot` skips as already on the read path, and the second is
+  **`$PAK_DIR`**. So `$PAK_DIR/mods/` is the one folder already being watched, and it happens to sit
+  next to `launch.sh` where a player will look. `build.sh` ships it with a `README.txt`; `launch.sh`
+  only recreates it and **reports** what is in it. Do **not** make `launch.sh` copy mods into the
+  save dir: adoption already has an "already installed wins" rule, and a shell copy would race it.
+  `verify.sh` asserts the folder and note ship, that it ships **empty** (a mod staged there would be
+  adopted into every player's save dir silently), and that `launch.sh` recreates it. Not yet watched
+  on hardware — it is traced through the code only, and belongs on the device checklist.
+- **`verify.sh`'s bashism screen greps the WHOLE of `launch.sh`, comments included.** `\bsource\b`
+  is in the pattern, so writing the ordinary English word "source" in a comment fails the build. Two
+  other `verify.sh` habits worth copying rather than rediscovering: use `[$]` in a `matches` regex,
+  never `\$`, or shellcheck raises SC2016; and `code_only` strips comments, so a check that forbids
+  a *behaviour* will not be tripped by prose describing it.
 - **The device has no CA store.** `/etc/ssl/certs`, `/etc/ssl/cert.pem` and `/etc/pki` are all
   absent, and the engine does HTTPS by shelling out to `curl` (`src/net/Fetch.lua`). Without a
   bundle every request fails with curl exit 60, surfacing in the mod manager as a failed update

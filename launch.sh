@@ -390,6 +390,54 @@ for id in $LEGACY_MODS; do
     echo "legacy    disable it from the in-game mod manager to use the bundled mod."
 done
 
+# --- mods the player dropped in by hand ------------------------------------
+# $PAK_DIR/mods is the one folder the engine already watches. adoptStrays()
+# scans SaveData.gameFolders() -- getSource() and getSourceBaseDirectory() on
+# Linux -- once per session just before the MODS listing, and COPIES what it
+# finds into the save dir. We exec love.aarch64 with $PAK_DIR/game, so the first
+# of those is game/ (skipped, already on the read path) and the second is
+# $PAK_DIR itself.
+#
+# build.sh ships this folder with a README.txt in it; recreate the folder if a
+# player deleted it, but never rewrite the note -- the text lives in build.sh.
+# Nothing is copied here: adoption is the engine's job, and doing it ourselves
+# would race its "already installed wins" rule.
+MODDROP="$PAK_DIR/mods"
+mkdir -p "$MODDROP" 2>/dev/null || echo "mods      WARNING: $MODDROP is not writable"
+
+# Report only. A mod that never appears in-game is otherwise undiagnosable
+# without a device trip, and the two mistakes below are the likely ones.
+for entry in "$MODDROP"/*; do
+    [ -e "$entry" ] || continue          # unmatched glob
+    name="${entry##*/}"
+    [ "$name" = "README.txt" ] && continue
+    if [ -d "$entry" ]; then
+        if [ -f "$entry/manifest.json" ]; then
+            echo "mods      hand-installed mod ready to import: $name"
+        else
+            # The usual slip: unzipping produced mods/Foo/Foo/manifest.json.
+            # Checked with a loop, not `[ -f "$entry"/*/... ]` -- an unmatched
+            # glob passes the literal pattern to test, and a multi-match makes
+            # it a syntax error.
+            nested=0
+            for sub in "$entry"/*/manifest.json; do
+                [ -f "$sub" ] && nested=1
+            done
+            if [ "$nested" = 1 ]; then
+                echo "mods      WARNING: $name is nested one level too deep"
+                echo "mods        manifest.json must sit directly in $MODDROP/$name/"
+            else
+                echo "mods      WARNING: $name has no manifest.json; the game will ignore it"
+            fi
+        fi
+    else
+        case "$name" in
+            *.zip) echo "mods      WARNING: $name is still zipped; unzip it into its own folder" ;;
+            *)     echo "mods      WARNING: $name is a loose file; mods go in their own folder" ;;
+        esac
+    fi
+done
+
 # --- the mod catalogue, seeded once ----------------------------------------
 # The engine ships no catalogue and asks the player to add one, because adding
 # an index means trusting whoever publishes it (src/mods/ModIndex.lua). That is

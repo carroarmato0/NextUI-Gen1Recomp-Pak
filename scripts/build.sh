@@ -390,6 +390,44 @@ Device bring-up parameters for TrimUI hardware were learned from nx-redux
 settings only; no code was copied.
 EOF
 
+# ------------------------------------------------------- hand-installed mods
+# The one folder the engine ALREADY watches for mods a player added by hand.
+# LauncherMods.adoptStrays() runs once per session just before the MODS listing
+# and copies what it finds into the save dir's mods/. It scans
+# SaveData.gameFolders() -- on Linux getSource() and getSourceBaseDirectory().
+# launch.sh runs `love.aarch64 "$PAK_DIR/game"`, so the source is game/ (skipped:
+# isReadableRoot drops anything already on the read path) and the base is the pak
+# directory. Shipping the folder is the feature: an empty folder with a note in it
+# gets found, and a path buried in a README does not.
+mkdir -p "$PAK/mods"
+cat > "$PAK/mods/README.txt" <<'EOF'
+Put mods you installed by hand in this folder.
+
+One folder per mod, with the mod's manifest.json directly inside it:
+
+    mods/SomeMod/manifest.json
+    mods/SomeMod/main.lua
+    ...
+
+Unzip the mod first -- a .zip left in here is ignored. If you end up with
+mods/SomeMod/SomeMod/manifest.json, move the inner folder up one level.
+
+The game picks these up by itself. Start the game, open the mod manager
+(MODS), and it copies anything new here into your save data, telling you
+"Imported from the game folder: ...". After that the mod is yours: it lives
+with your saves, it survives updates to this pak, and you can turn it on and
+off from the MODS screen like any other.
+
+The copy left in this folder does nothing after that point. You can delete it.
+
+A mod already installed under the same name is left alone -- what you have
+installed always wins, so nothing here can quietly replace it.
+
+Nothing in this folder is read while you are playing, and this pak neither
+downloads nor checks these mods. They are yours, and they run with the same
+access any other mod has.
+EOF
+
 rm -rf "$WORK"
 
 # ------------------------------------------------------------------ stamp/report

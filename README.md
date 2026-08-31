@@ -268,6 +268,22 @@ Three caveats specific to this hardware:
 
 Mods you install yourself land in your save directory, not in the pak, so a pak update will not remove them.
 
+### Installing a mod by hand
+
+You do not have to use the in-game manager. The pak ships an empty folder for mods you want to add yourself:
+
+```
+Tools/<platform>/Gen1Recomp.pak/mods/
+```
+
+Unzip the mod so its `manifest.json` sits directly inside its own folder — `mods/SomeMod/manifest.json` — then start the game and open **MODS** once. The engine copies anything new into your save data and reports *"Imported from the game folder: …"*. From then on the mod lives with your saves, survives pak updates, and toggles from the MODS screen like any other. The copy left in `mods/` does nothing afterwards and can be deleted.
+
+This is the engine's own mechanism, not something this pak bolted on: `adoptStrays()` scans the folder the game was launched from once per session, which for this pak is the `.pak` directory. The pak only creates the folder, ships a `README.txt` in it, and reports in its log what it found — including the two mistakes that otherwise produce silence: a mod left zipped, and a mod unzipped one level too deep (`mods/SomeMod/SomeMod/manifest.json`).
+
+Nothing is copied by the pak itself, deliberately. A mod already installed under the same id always wins, so a folder left here can never quietly replace something you installed in-game.
+
+The usual caution applies and is not reduced by installing this way: a mod is code from a stranger, running with access to your save data. Note also that a mod installed by hand is **not** the bundled voxel mod — if you hand-install Dramaless yourself, you get the released version, which is missing the fix described under [The voxel mod](#the-voxel-mod).
+
 ### The catalogue lists the mod this pak removed
 
 `DRAMATIC_SHAPE` is in there, at **1.8.2** — newer than the 1.7.2 v0.3.0 shipped. It is the same mod: same id, same `github` field pointing at the deleted original, and **196 of its 222 files are byte-identical** to the copy this pak used to bundle. It is hosted by a preservation mirror rather than its author.

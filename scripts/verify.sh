@@ -487,6 +487,28 @@ else
     note "voxel mod not present (built with --no-voxel)"
 fi
 
+# ------------------------------------------- hand-installed mod drop folder
+# $PAK_DIR/mods is what the engine's adoptStrays() scans (getSourceBaseDirectory()
+# for our `love.aarch64 "$PAK_DIR/game"` launch). Shipping it with a note is the
+# whole feature -- an empty folder gets found, a README path does not.
+[ -d "$PAK/mods" ]
+check $? "the hand-installed mod drop folder is shipped (mods/)"
+
+[ -f "$PAK/mods/README.txt" ]
+check $? "mods/README.txt tells the player what to put there"
+
+# It must ship EMPTY. A mod staged here would be adopted into every player's
+# save dir on first launch, which is not something a pak should do silently --
+# bundled mods go in game/mods/ and are declared in upstream.lock.
+drop_extra="$(find "$PAK/mods" -mindepth 1 ! -name 'README.txt' -print -quit)"
+[ -z "$drop_extra" ]
+check $? "mods/ ships empty apart from the note (nothing is adopted behind the player)"
+
+# Creating it is launch.sh's job too: a player who deletes the folder must get
+# it back rather than losing the route entirely.
+code_only | matches 'mkdir -p "[$]MODDROP"'
+check $? "launch.sh recreates the drop folder if it is missing"
+
 # ------------------------------------------------------- launch.sh shape
 group "launch.sh"
 

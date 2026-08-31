@@ -515,5 +515,72 @@ rm -rf "$SB"
 
 # --------------------------------------------------------------------------
 echo
+# --------------------------------------------------------------------------
+echo
+echo "mods dropped into the pak's mods/ folder by hand"
+
+SB="$(make_sandbox)"
+rm -rf "$SB/pak/mods"
+run_launch "$SB"
+[ -d "$SB/pak/mods" ]
+check $? "creates the drop folder if a player deleted it"
+rm -rf "$SB"
+
+SB="$(make_sandbox)"
+# build.sh ships the note; launch.sh must not rewrite it. Stand in for it here.
+mkdir -p "$SB/pak/mods"
+echo "shipped note" > "$SB/pak/mods/README.txt"
+mkdir -p "$SB/pak/mods/CoolMod"
+echo '{"id":"CoolMod"}' > "$SB/pak/mods/CoolMod/manifest.json"
+run_launch "$SB"
+log_of "$SB" | grep -q "hand-installed mod ready to import: CoolMod"
+check $? "reports a valid hand-installed mod"
+[ "$(cat "$SB/pak/mods/README.txt")" = "shipped note" ]
+check $? "does not rewrite the shipped README.txt"
+log_of "$SB" | grep -q "README.txt"
+if [ $? -eq 0 ]; then bad "warned about its own README.txt"
+else ok "does not mistake README.txt for a mod"; fi
+# Adoption is the engine's job -- launch.sh must not pre-empt its
+# "already installed wins" rule by copying anything itself.
+[ ! -e "$SB/SDCARD/$SAVE_REL/mods/CoolMod" ]
+check $? "copies nothing into the save dir (adoption is the engine's)"
+[ -f "$SB/pak/mods/CoolMod/manifest.json" ]
+check $? "leaves the player's files where they put them"
+rm -rf "$SB"
+
+SB="$(make_sandbox)"
+mkdir -p "$SB/pak/mods"
+echo "PK" > "$SB/pak/mods/SomeMod.zip"
+run_launch "$SB"
+log_of "$SB" | grep -q "SomeMod.zip is still zipped"
+check $? "warns about a mod left zipped"
+rm -rf "$SB"
+
+SB="$(make_sandbox)"
+mkdir -p "$SB/pak/mods/Outer/Inner"
+echo '{"id":"Inner"}' > "$SB/pak/mods/Outer/Inner/manifest.json"
+run_launch "$SB"
+log_of "$SB" | grep -q "Outer is nested one level too deep"
+check $? "warns about a mod unzipped one level too deep"
+rm -rf "$SB"
+
+SB="$(make_sandbox)"
+mkdir -p "$SB/pak/mods/NotAMod"
+echo "junk" > "$SB/pak/mods/NotAMod/readme.md"
+run_launch "$SB"
+log_of "$SB" | grep -q "NotAMod has no manifest.json"
+check $? "warns about a folder with no manifest.json"
+rm -rf "$SB"
+
+SB="$(make_sandbox)"
+mkdir -p "$SB/pak/mods"
+run_launch "$SB"
+# Scoped to mods lines: the sandbox ships no CA bundle, so the log
+# legitimately carries an unrelated "tls WARNING".
+log_of "$SB" | grep -q "^mods .*WARNING"
+if [ $? -eq 0 ]; then bad "warned about an empty drop folder"
+else ok "stays quiet when the drop folder is empty"; fi
+rm -rf "$SB"
+
 printf '%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
