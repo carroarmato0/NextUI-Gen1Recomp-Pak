@@ -516,7 +516,18 @@ head -1 "$ROOT/launch.sh" | grep -q '^#!/bin/sh$'
 check $? "shebang is #!/bin/sh, not bash (PortMaster can hijack /bin/bash on these cards)"
 
 # Cheap bashism screen. CI additionally runs this under dash via test-launch.sh.
-bashisms=$(grep -nE '\[\[|\bfunction [a-zA-Z_]|[a-zA-Z_]+\+=|<<<|\bdeclare\b|\blocal\b|\bsource\b|&>' "$ROOT/launch.sh" || true)
+#
+# Whole-line comments are dropped first. They are never executed, and leaving them
+# in produced three false positives in one sitting: the pattern holds \bsource\b
+# and \bfunction [a-zA-Z_], so the ordinary English "the source is game/" and
+# "function parameter" each failed the build from a comment.
+#
+# Dropped with grep -v rather than code_only(), which strips from the first '#'
+# to end of line and would corrupt every ${var##*/} and ${var%% *} in the file --
+# that is exactly why this screen reads the raw script. A trailing comment on a
+# line of code is still scanned, which is the rare case and worth keeping strict.
+bashisms=$(grep -vE '^[[:space:]]*#' "$ROOT/launch.sh" \
+           | grep -nE '\[\[|\bfunction [a-zA-Z_]|[a-zA-Z_]+\+=|<<<|\bdeclare\b|\blocal\b|\bsource\b|&>' || true)
 [ -z "$bashisms" ]
 check $? "no obvious bashisms${bashisms:+ -- $bashisms}"
 

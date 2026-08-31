@@ -120,6 +120,8 @@ save_cpu_state() {
 "
     done
 }
+# Called from cleanup() only, so shellcheck's SC2329 cascades onto it from there.
+# shellcheck disable=SC2329
 restore_cpu_state() {
     printf '%s' "$CPU_SAVED" | while IFS="$(printf '\t')" read -r pol gov mx mn; do
         [ -d "$pol" ] || continue
@@ -137,6 +139,11 @@ restore_cpu_state() {
     done
 }
 
+# Invoked by `trap cleanup EXIT ...` below, which shellcheck does not count as a
+# call. It only began reporting SC2329 once this script stopped ending in `exec`
+# -- and that trap is precisely why the exec had to go. The directive has to be
+# the LAST comment line before the function or it is parsed as part of itself.
+# shellcheck disable=SC2329
 cleanup() {
     echo 0 > /sys/class/speaker/mute 2>/dev/null
     rm -f "$HOME/.asoundrc" 2>/dev/null
@@ -520,7 +527,12 @@ if [ -n "$DIAG" ]; then
     echo "diag      (diagnostics only -- arbitrary LOVE games are unsupported)"
     echo "diag      delete it from $STATE to get the game back"
     cd "$PAK_DIR" || exit 1
-    exec "$PAK_DIR/bin/love.aarch64" "$DIAG"
+    # A child, not exec, for the same reason as the game launch below: the CPU
+    # tuning above has already run, and exec would discard the trap that undoes it.
+    "$PAK_DIR/bin/love.aarch64" "$DIAG"
+    status=$?
+    echo "diag      exited with status $status"
+    exit "$status"
 fi
 
 [ -f "$GAME/main.lua" ] || { echo "FATAL: $GAME/main.lua is missing."; exit 1; }
@@ -784,4 +796,29 @@ fi
 cd "$GAME" || { echo "FATAL: cannot cd to $GAME"; exit 1; }
 echo "launch    $PAK_DIR/bin/love.aarch64 $GAME"
 echo "=== love output follows ==="
-exec "$PAK_DIR/bin/love.aarch64" "$GAME"
+
+# Run love as a CHILD and exit normally afterwards. Emphatically not `exec`:
+# exec replaces this shell, and a replaced shell cannot run `trap cleanup EXIT`.
+# Everything cleanup() puts back was therefore never put back -- measured on a
+# Brick, 2026-08-31, where the frequency ceiling stayed at the raised 2.0 GHz
+# after the game exited, with only a zombie launch.sh left behind.
+#
+# On tg5040 the frontend largely masks that: NextUI's launch loop resets the
+# governor and ceiling shortly after a pak returns. What it does NOT redo is
+# which cores are ONLINE, and on tg5050 this pak brings up five that NextUI
+# offlined at boot -- so those stayed up for the rest of the user's session,
+# costing battery in every app afterwards. That is the leak this closes.
+#
+# Foreground, not `&` + `wait`. A signal arriving while a foreground command runs
+# is held until that command completes (POSIX), and it is delivered to the whole
+# foreground process group, so love sees it too, exits, and THEN the trap runs.
+# Backgrounding would hand us the job of forwarding signals and reaping an
+# orphan, for no gain.
+#
+# The cost is this shell staying resident while the game runs: 3.8 MB measured on
+# the Brick. On a 1 GB device that is real but it is idle, so its pages are the
+# first the kernel reclaims -- a fair price for not leaking CPU state.
+"$PAK_DIR/bin/love.aarch64" "$GAME"
+status=$?
+echo "=== love exited with status $status ==="
+exit "$status"

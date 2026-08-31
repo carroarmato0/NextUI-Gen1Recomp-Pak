@@ -618,5 +618,38 @@ if [ $? -eq 0 ]; then bad "warned about an empty drop folder"
 else ok "stays quiet when the drop folder is empty"; fi
 rm -rf "$SB"
 
+# --------------------------------------------------------------------------
+echo
+echo "love runs as a child, so the cleanup trap can actually fire"
+
+# The bug this guards: launch.sh used to end in `exec love`, which replaces the
+# shell -- and a replaced shell cannot run `trap cleanup EXIT`. Everything
+# cleanup() restores was therefore never restored. Confirmed on a Brick,
+# 2026-08-31: the CPU ceiling stayed raised after the game exited.
+grep -qE '^[[:space:]]*exec "[$]PAK_DIR/bin/love.aarch64"' "$ROOT/launch.sh"
+if [ $? -eq 0 ]; then bad "launch.sh execs love -- that discards the cleanup trap"
+else ok "launch.sh does not exec love (the trap would be discarded)"; fi
+
+SB="$(make_sandbox)"
+run_launch "$SB"
+log_of "$SB" | grep -q "love exited with status 0"
+check $? "carries on past love and logs its exit status"
+rm -rf "$SB"
+
+# The status has to survive, or NextUI cannot tell a crash from a clean quit.
+SB="$(make_sandbox)"
+cat > "$SB/pak/bin/love.aarch64" <<'STUB'
+#!/bin/sh
+echo "LOVE_ARGV: $*" > "$LOVE_STUB_OUT"
+exit 42
+STUB
+chmod +x "$SB/pak/bin/love.aarch64"
+run_launch "$SB"
+[ $? -eq 42 ]
+check $? "propagates love's exit status rather than swallowing it"
+log_of "$SB" | grep -q "love exited with status 42"
+check $? "records a non-zero exit in the log"
+rm -rf "$SB"
+
 printf '%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

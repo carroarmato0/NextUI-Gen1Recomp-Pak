@@ -237,12 +237,15 @@ the pak directory — a pak update would otherwise destroy them.
   `verify.sh` asserts the folder and note ship, that it ships **empty** (a mod staged there would be
   adopted into every player's save dir silently), and that `launch.sh` recreates it. Not yet watched
   on hardware — it is traced through the code only, and belongs on the device checklist.
-- **`verify.sh`'s bashism screen greps the WHOLE of `launch.sh`, comments included.** The pattern
-  holds `\bsource\b` and `\bfunction [a-zA-Z_]`, so the ordinary English phrases "the source" and
-  "function parameter" in a *comment* both fail the build. Each cost a round trip here. Two other
-  `verify.sh` habits worth copying rather than rediscovering: use `[$]` in a `matches` regex, never
-  `\$`, or shellcheck raises SC2016; and `code_only` strips comments, so a check that forbids a
-  *behaviour* is not tripped by prose describing it — only the screens that read the raw file are.
+- **`verify.sh`'s bashism screen now skips whole-line comments, and it had to.** The pattern holds
+  `\bsource\b` and `\bfunction [a-zA-Z_]`, so the ordinary English "the source is game/" and
+  "function parameter" in a *comment* each failed the build — three times in one sitting before the
+  screen was fixed. It drops comment lines with `grep -v`, **not** `code_only()`: `code_only` strips
+  from the first `#` to end of line and would corrupt every `${var##*/}` and `${var%% *}` in the
+  file, which is exactly why this screen reads the raw script. A trailing comment on a line of code
+  is still scanned. Verified after the change that all eight bashism forms are still caught. Also
+  worth copying rather than rediscovering: use `[$]` in a `matches` or `grep -E` pattern, never
+  `\$`, or shellcheck raises SC2016.
 - **The device has no CA store.** `/etc/ssl/certs`, `/etc/ssl/cert.pem` and `/etc/pki` are all
   absent, and the engine does HTTPS by shelling out to `curl` (`src/net/Fetch.lua`). Without a
   bundle every request fails with curl exit 60, surfacing in the mod manager as a failed update
@@ -290,6 +293,27 @@ the pak directory — a pak update would otherwise destroy them.
     so failing to restore the online mask leaks into the rest of the user's session.
   - The audio justification inherited from nx-redux remains unverified. If it is dropped, drop the
     governor line, not the core onlining — they are separate claims with separate evidence.
+- **`launch.sh` must never `exec` love, and that is load-bearing.** It did until v0.4.3, and `exec`
+  replaces the shell — so `trap cleanup EXIT INT TERM HUP QUIT` could not fire and **nothing
+  cleanup() restores was ever restored**. Measured on a Brick, 2026-08-31: ceiling 1.8 GHz before,
+  2.0 GHz during, still 2.0 GHz after the game exited, with only a zombie `launch.sh` left. On
+  tg5040 the frontend mostly masks it (NextUI resets governor and ceiling after a pak returns); the
+  part it does **not** redo is the tg5050 online mask, so five cores stayed up for the rest of the
+  session. Love now runs as a **foreground child** followed by `exit "$status"`: a signal arriving
+  during a foreground command is held until it completes and is delivered to the whole process
+  group, so love sees it, exits, and only then does the trap run — no signal forwarding or orphan
+  reaping to get wrong, which `&` + `wait` would have required. Costs one idle shell resident during
+  play (3836 kB measured). Re-measured after the fix on the same Brick: 1.8 GHz restored, no stray
+  processes. `test/test-launch.sh` asserts there is no `exec` of love, and that the exit status is
+  logged and propagated.
+- **The log now ends with `=== love exited with status N ===`, which sharpens an old diagnostic.**
+  A log that stops dead right after `=== love output follows ===` used to be ambiguous; it now means
+  love died before returning, which is the libmpg123 signature (issue #1). A clean quit says so.
+- **shellcheck's SC2329 fires on `cleanup` and `restore_cpu_state` now.** It does not count `trap
+  cleanup EXIT` as an invocation, and it only started reporting once the script stopped ending in
+  `exec`. Both carry an inline `# shellcheck disable=SC2329`. The directive must be the **last**
+  comment line before the function, or the following comment lines are parsed as part of it (SC1072/
+  SC1073). Do not put this in `.shellcheckrc` — that would hide genuinely dead functions in `scripts/`.
 - **`MALI_CreateWindow` in the log does not mean Mali.** The vendor SDL2 prints it on tg5040 too,
   where the GPU is PowerVR: device-tree `compatible` is `img,gpu`, `/sys/kernel/debug/pvr/` exists,
   and the same library exports `PVR_Vulkan_*`. Do not "correct" the platform table from that line.
