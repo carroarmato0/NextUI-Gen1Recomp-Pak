@@ -50,6 +50,18 @@ adb get-state >/dev/null 2>&1 || die "no device over adb"
 
 logtext() { adb shell "cat '$LOG' 2>/dev/null"; }
 
+# clear_log -- remove the device log immediately before a prompt.
+#
+# Every group below reads $LOG and judges the pak by it, but launch.sh only
+# rewrites that file when it actually runs. So if nothing is launched at the
+# prompt, the checks silently grade a log from an earlier session and report
+# passes that are not evidence of anything. That happened twice on a Brick before
+# this existed: six "ok"s against a thirteen-minute-old log.
+#
+# Deleting it costs nothing -- launch.sh truncates the log on every launch anyway
+# -- and turns "you did not launch it" into the unambiguous empty-log branch.
+clear_log() { adb shell "rm -f '$LOG'" >/dev/null 2>&1; }
+
 cpu_state() {
     # Single-quoted on purpose: it runs on the device, not here. (SC2016)
     # shellcheck disable=SC2016
@@ -109,6 +121,7 @@ cat <<EOF
   Listen for a clean tone with no pop and no crackle.
 
 EOF
+clear_log
 read -r -p "  Press Enter once the smoke test has run and exited... " _
 
 group "Smoke test"
@@ -118,7 +131,7 @@ SMOKE="$(logtext)"
 # log from an earlier run. Reported separately, because "no GLES renderer" for a
 # smoke test that never started sends you debugging the wrong thing entirely.
 if [ -z "$SMOKE" ]; then
-    bad "no log at $LOG -- the pak did not run at all"
+    bad "nothing was launched -- open Tools > Gen1Recomp on the device BEFORE pressing Enter"
 elif ! printf '%s\n' "$SMOKE" | matches '^diag'; then
     warn "the smoke test did not run -- this log is from a different launch"
     printf '        the pak logs \033[1mdiag\033[0m lines when it runs a .love from the state dir;\n'
@@ -179,12 +192,13 @@ cat <<EOF
   Start a new game, walk around a little, save, then quit.
 
 EOF
+clear_log
 read -r -p "  Press Enter once you have quit Gen1Recomp... " _
 
 group "Gen1Recomp"
 GLOG="$(logtext)"
 if [ -z "$GLOG" ]; then
-    bad "no log -- the pak did not run"
+    bad "nothing was launched -- open Tools > Gen1Recomp on the device BEFORE pressing Enter"
 else
     printf '%s\n' "$GLOG" | matches 'FATAL' \
         && bad "launch.sh reported FATAL: $(printf '%s\n' "$GLOG" | grep -m1 FATAL)" \
