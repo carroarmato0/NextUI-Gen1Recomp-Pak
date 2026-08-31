@@ -369,7 +369,7 @@
       "matching dump to the top of the save dir and the engine imported it unattended.",
       "",
       "IT IS NOW A FILE BROWSER. The Choose flow opens Kit.FileBrowser and RETURNS before the scan:",
-      "  RomImporter.lua:2739  if isHandheld then Kit.FileBrowser.open(); return end",
+      "  RomImporter.lua:2744  if isHandheld then Kit.FileBrowser.open(); return end",
       "  RomImporter.lua:2759  chooseRom()   -- zenity/kdialog, absent on these devices",
       "  RomImporter.lua:2765  if Kit.FileBrowser then open(); return end   <-- the branch we hit",
       "  RomImporter.lua:2782  findPendingRom(...)  -- only reached if Kit.FileBrowser is absent",
@@ -386,7 +386,11 @@
       "Upstream fixed a real bug in the same change -- findPendingRom gained a `wanted` argument, so",
       "'choose Red, import Blue' (#1274) is gone. If the browser ever stops pre-empting the scan,",
       "unattended import becomes possible again and this decision should be revisited; verify.sh",
-      "asserts both the browser and findPendingRom so either moving is caught here."
+      "asserts both the browser and findPendingRom so either moving is caught here.",
+      "",
+      "Reported upstream as bryanthaboi/gen1recomp#2025, suggesting findPendingRom be tried before",
+      "the browser opens and the browser kept as the fallback. If that lands, unattended import",
+      "becomes possible again and the report-only scan above should be revisited."
     ],
     "rom_discovery": {
       "browser": "Kit.FileBrowser",

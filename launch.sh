@@ -634,14 +634,14 @@ ROMTABLE
 # RomImporter's Choose flow on Linux now opens the engine's own file browser and
 # returns before the pending-ROM scan is ever reached:
 #
-#   RomImporter.lua:2739  if isHandheld then Kit.FileBrowser.open(); return end
+#   RomImporter.lua:2744  if isHandheld then Kit.FileBrowser.open(); return end
 #   RomImporter.lua:2759  chooseRom()  -- zenity/kdialog, absent on these devices
 #   RomImporter.lua:2765  if Kit.FileBrowser then open(); return end   <-- ours
 #   RomImporter.lua:2782  findPendingRom(...)  -- only if Kit.FileBrowser is gone
 #
 # Verified on a Brick, 2026-08-31: none of HANDHELD/PORTMASTER/POKEPORT_HANDHELD/
 # TRIMUI/MUOS/KNULLI are set for a pak, so it is the plain-Linux branch at 2765
-# that opens the browser, not the handheld one at 2739. Either way it returns.
+# that opens the browser, not the handheld one at 2744. Either way it returns.
 # The engine's other two findPendingRom call sites are Android-only (one behind
 # mobileFileBridge, one inside focus(), which requires self.android).
 #

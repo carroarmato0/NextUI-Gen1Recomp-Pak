@@ -357,7 +357,9 @@ the pak directory — a pak update would otherwise destroy them.
   are reported as removable and left alone. `verify.sh` asserts the browser is still what the engine
   opens, that `findPendingRom` still exists (so its return to reachability is noticed), and that
   `launch.sh` neither copies nor deletes. Upstream fixed `#1274` in the same change — `findPendingRom`
-  gained a `wanted` argument — so "choose Red, import Blue" is gone.
+  gained a `wanted` argument — so "choose Red, import Blue" is gone. Reported as
+  `bryanthaboi/gen1recomp#2025`: try `findPendingRom` first, keep the browser as the fallback.
+  If that lands, revisit the report-only scan.
 - **The ROM scan still matches folders the way NextUI does.** `getEmuName`
   (`workspace/all/common/utils.c:352`) takes the tag in a folder's *last* parentheses, or the whole
   name when there are none — `Game Boy (GB)`, `Nintendo Game Boy (GB)` and `GB` are one system to
