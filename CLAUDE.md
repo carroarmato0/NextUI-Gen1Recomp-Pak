@@ -139,6 +139,26 @@ the pak directory — a pak update would otherwise destroy them.
   `ModIndex.fetchText` synchronously. Players also report freezes on first listing load and on
   paging, which are **not** explained by the async feed path; the 142 KB / 107-mod parse on the main
   thread is a candidate, unproven. Do not describe the trigger more confidently than that.
+- **`DRAMATIC_SHAPE` 1.8.2 is now BROKEN on 0.2.43, not merely a conflict — observed on a Smart Pro
+  S, 2026-08-31.** Its `main.lua` calls `require("src.render.GBCFX")` in **three** places (`:672`,
+  `:690`, `:852`), and the engine deleted that module after 0.2.20. It gets no patch from us: it is
+  the player's own copy in `$SAVEROOT/mods/`, not the one we ship. So in a **Gen 1** game it loads
+  (our mod declares the conflict and therefore loses), and then throws. In a Gen 2 game it is
+  skipped outright — `[info] mod DRAMATIC_SHAPE skipped: not marked gen2compat` — which is why the
+  symptom is version-dependent and looks intermittent. Reported symptom was a sluggish launcher with
+  the pad cursor vanishing; removing the mod cleared it and `loaded mod DRAMALESS_SHAPE 2.0.3`
+  appeared. **Consistent, not proven** — the same session also involved a reboot and a different
+  game — but the mechanism is concrete. `launch.sh` still only REPORTS a save-dir copy and must not
+  delete it; the fix is the player's to make.
+- **The voxel mod's water shader does not compile on Mali, and the mod's own fallback cannot fix
+  it.** On a Smart Pro S (Mali-G57), 2026-08-31: `S0023: Function 'effect' redeclared with a
+  different precision qualifier on the RETURN TYPE`, twice, then `lakes draw flat`. The mod pins
+  precision on **parameters only** (`lib/Water.lua:951`) and retries with `EFFECT_PREC` as `mediump`
+  then empty (`:1157`) — neither attempt touches the return type, which is what Mali objects to, so
+  both fail. **Whether a Brick is affected is UNTESTED** — no Brick session has been run with water
+  visible and the log checked, so "PowerVR accepts it" is an inference from Mali being the stricter
+  compiler, not an observation. Do not repeat it as fact. Mod-side either way, and the visible cost
+  is flat lakes. Not yet reported upstream.
 - **The official index lists `DRAMATIC_SHAPE` 1.8.2, and installing it silently disables our mod.**
   Verified 2026-08-14: same id, same `github` field, **196 of 222 files byte-identical** to the
   1.7.2 we removed, hosted by the `scottcandy34` mirror, still **no LICENSE file**. The prohibition
