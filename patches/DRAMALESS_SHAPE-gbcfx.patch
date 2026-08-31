@@ -1,0 +1,54 @@
+Make the voxel mod survive the removal of src/render/GBCFX.lua.
+
+Gen1Recomp deleted that module between 0.2.20 and 0.2.24, replacing it with
+src/render/ShaderFX.lua. DRAMALESS_SHAPE still requires it in two places as of 2.0.3, the latest
+release, and neither survives it:
+
+  main.lua:267  require("src.render.GBCFX").setLevel(0)
+  main.lua:308  pcall(require("src.render.GBCFX").setLevel, 0)
+
+The second only looks guarded. The pcall wraps the CALL; the require is an
+argument, so it is evaluated first and throws on its own.
+
+Line 308 sits at the top of pinEngineFx, which is the first statement of the
+mod's "ui.options.rows" hook. src/mods/Hooks.lua runs every link under pcall and
+logs-and-skips one that throws, so the wrapper dies before insertGrouped and the
+mod's rows never reach OPTIONS. On a handheld that is the whole control surface:
+the mod's own hotkeys are keyboard-only (v/g/t/c via Game.keypressed, no gamepad
+binding), so a player loses every way to turn 3D on or off, with nothing on
+screen to explain it.
+
+Upstream will not shim it -- bryanthaboi/gen1recomp#1823 was closed by the engine
+author as "this is a mod issue". Reported to the mod author as
+artyrambles/DRAMALESS_SHAPE#53; drop this patch when a release carries the fix.
+
+The replacement is the shape Gen1Recomp itself used at src/import/LauncherSettings.lua
+while the module still existed: pcall the require, then use the result.
+
+verify.sh asserts both ends of this -- that no bare require of the module is left
+in the staged mod, and that game/src/render/GBCFX.lua has NOT come back upstream
+(if it does, this patch is obsolete and must be deleted rather than carried).
+
+--- a/main.lua
+--- a/main.lua
++++ b/main.lua
+@@ -264,7 +264,8 @@
+           Pipelines.syncOptions(self.save.options)
+           self.save.options.tilt, self.save.options.gbcfx = 0, 0
+           require("src.render.Tilt").setLevel(0)
+-          require("src.render.GBCFX").setLevel(0)
++          local okFx, GBCFX = pcall(require, "src.render.GBCFX")
++          if okFx then GBCFX.setLevel(0) end
+           self:writeOptions()
+           V.log:event("options", "hotkey", { key = key })
+           return
+@@ -305,7 +306,8 @@
+   local changed = opts and ((opts.tilt or 0) ~= 0 or (opts.gbcfx or 0) ~= 0)
+   if opts then opts.tilt, opts.gbcfx = 0, 0 end
+   pcall(require("src.render.Tilt").setLevel, 0)
+-  pcall(require("src.render.GBCFX").setLevel, 0)
++  local okFx, GBCFX = pcall(require, "src.render.GBCFX")
++  if okFx then pcall(GBCFX.setLevel, 0) end
+   if changed and game.writeOptions then pcall(game.writeOptions, game) end
+ end
+ 

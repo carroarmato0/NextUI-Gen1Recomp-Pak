@@ -45,7 +45,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-for t in curl unzip zip jq sha256sum readelf ar tar; do
+for t in curl unzip zip jq sha256sum readelf ar tar patch; do
   command -v "$t" >/dev/null || fail "$t is required"
 done
 
@@ -223,6 +223,18 @@ cp "$SRC/bin/love.aarch64" "$PAK/bin/love.aarch64"
 chmod +x "$PAK/bin/love.aarch64"
 cp "$SRC"/libs.aarch64/*.so* "$PAK/libs.aarch64/"
 
+# Everything upstream ships is copied first and the unwanted removed by name,
+# rather than copying an allowlist: a library we have never seen must survive
+# into the staged tree so verify.sh's exact-name check can fail on it. Dropping
+# it here instead would make a new upstream dependency invisible.
+while read -r rel; do
+  [ -n "$rel" ] || continue
+  [ -f "$PAK/$rel" ] || fail "upstream.lock says to strip $rel, but the port zip has no such file.
+Upstream dropped it on its own -- remove it from love_runtime.strip in upstream.lock."
+  rm -f "$PAK/$rel"
+  say "stripped $rel ($(jqlock '.love_runtime._strip_reason'))"
+done < <(jq -r '.love_runtime.strip[]?' "$LOCK")
+
 say "verifying the bundled LOVE runtime against upstream.lock"
 while IFS=$'\t' read -r rel want; do
   [ -f "$PAK/$rel" ] || fail "runtime file missing from the port zip: $rel"
@@ -303,14 +315,24 @@ if [ "$WITH_VOXEL" = 1 ]; then
   mkdir -p "$MOD_WORK"
   unzip -q "$VOXEL_ZIP" -d "$MOD_WORK" || fail "could not unpack the voxel mod"
 
-  # Exactly one top-level entry, and it is the name we pinned.
-  found="$(find "$MOD_WORK" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)"
-  [ "$found" = "$ROOT_DIR" ] || fail "unexpected voxel mod archive layout.
+  # Two layouts exist and the lock says which to expect, so a silent change of
+  # shape fails the build instead of installing a tree with no entry point.
+  # 2.0.1/2.0.2 nested everything under DRAMALESS_SHAPE-<version>/; 2.0.3
+  # flattened it. archive_root empty means flat.
+  mkdir -p "$(dirname "$MOD_DIR")"
+  if [ -z "$ROOT_DIR" ]; then
+    [ -f "$MOD_WORK/manifest.json" ] || fail "upstream.lock says the voxel mod archive is flat
+(archive_root empty), but its top level has no manifest.json:
+$(find "$MOD_WORK" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort | tr '\n' ' ')"
+    mv "$MOD_WORK" "$MOD_DIR"
+  else
+    # Exactly one top-level entry, and it is the name we pinned.
+    found="$(find "$MOD_WORK" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)"
+    [ "$found" = "$ROOT_DIR" ] || fail "unexpected voxel mod archive layout.
 upstream.lock pins archive_root '$ROOT_DIR'; the zip's top level holds:
 $found"
-
-  mkdir -p "$(dirname "$MOD_DIR")"
-  mv "$MOD_WORK/$ROOT_DIR" "$MOD_DIR"
+    mv "$MOD_WORK/$ROOT_DIR" "$MOD_DIR"
+  fi
 
   # The LICENSE is the whole reason this mod replaced the last one -- see the
   # voxel_mod note in upstream.lock. A build that loses it must not succeed.
@@ -318,6 +340,21 @@ $found"
     [ -f "$MOD_DIR/$f" ] || fail "voxel mod is missing $f -- refusing to build"
   done
   cp "$MOD_DIR/LICENSE" "$PAK/licenses/LICENSE.$(jqlock '.voxel_mod.name').txt"
+
+  # Patches carried against the mod, each with its reasoning in the file header.
+  # These exist only because an upstream removal broke a mod whose author has not
+  # shipped since; every one is reported upstream and must be dropped, not
+  # carried, once a release fixes it. Fails closed: a patch that no longer
+  # applies means the mod moved and a human has to look.
+  while read -r rel; do
+    [ -n "$rel" ] || continue
+    [ -f "$ROOT/$rel" ] || fail "upstream.lock pins patch $rel, which is not in this tree"
+    patch -p1 -s --no-backup-if-mismatch -d "$MOD_DIR" < "$ROOT/$rel" \
+      || fail "patch $rel did not apply to $(jqlock '.voxel_mod.name') $(jqlock '.voxel_mod.version').
+The mod changed underneath it. Re-cut the patch, or drop it if upstream fixed the cause
+(see the header of $rel)."
+    say "applied $(basename "$rel")"
+  done < <(jq -r '.voxel_mod.patches[]?' "$LOCK")
 else
   say "skipping voxel mod (--no-voxel)"
 fi
@@ -361,6 +398,44 @@ VOX
 Device bring-up parameters for TrimUI hardware were learned from nx-redux
 (GPL-3.0), https://github.com/mohammadsyuhada/nx-redux -- referenced for factual
 settings only; no code was copied.
+EOF
+
+# ------------------------------------------------------- hand-installed mods
+# The one folder the engine ALREADY watches for mods a player added by hand.
+# LauncherMods.adoptStrays() runs once per session just before the MODS listing
+# and copies what it finds into the save dir's mods/. It scans
+# SaveData.gameFolders() -- on Linux getSource() and getSourceBaseDirectory().
+# launch.sh runs `love.aarch64 "$PAK_DIR/game"`, so the source is game/ (skipped:
+# isReadableRoot drops anything already on the read path) and the base is the pak
+# directory. Shipping the folder is the feature: an empty folder with a note in it
+# gets found, and a path buried in a README does not.
+mkdir -p "$PAK/mods"
+cat > "$PAK/mods/README.txt" <<'EOF'
+Put mods you installed by hand in this folder.
+
+One folder per mod, with the mod's manifest.json directly inside it:
+
+    mods/SomeMod/manifest.json
+    mods/SomeMod/main.lua
+    ...
+
+Unzip the mod first -- a .zip left in here is ignored. If you end up with
+mods/SomeMod/SomeMod/manifest.json, move the inner folder up one level.
+
+The game picks these up by itself. Start the game, open the mod manager
+(MODS), and it copies anything new here into your save data, telling you
+"Imported from the game folder: ...". After that the mod is yours: it lives
+with your saves, it survives updates to this pak, and you can turn it on and
+off from the MODS screen like any other.
+
+The copy left in this folder does nothing after that point. You can delete it.
+
+A mod already installed under the same name is left alone -- what you have
+installed always wins, so nothing here can quietly replace it.
+
+Nothing in this folder is read while you are playing, and this pak neither
+downloads nor checks these mods. They are yours, and they run with the same
+access any other mod has.
 EOF
 
 rm -rf "$WORK"

@@ -122,9 +122,28 @@ fi
 [ -x "$PAK/bin/love.aarch64" ]
 check $? "bin/love.aarch64 is executable"
 
-libcount=$(find "$PAK/libs.aarch64" -maxdepth 1 -name '*.so*' | wc -l)
-[ "$libcount" -eq 4 ]
-check $? "libs.aarch64/ holds exactly the 4 expected libraries (found $libcount)"
+# An exact name set, not a count. The pinned files ARE the allowlist, so this
+# cannot be satisfied by bumping a number: an unknown library upstream starts
+# shipping fails here by name, which is how liblibrashader_bridge.so was caught.
+# Anything deliberately not installed is listed in love_runtime.strip and so is
+# absent from love_runtime.files -- see the strip note in upstream.lock.
+want_libs=$(jq -r '.love_runtime.files | keys[]
+                   | select(startswith("libs.aarch64/"))
+                   | sub("^libs\\.aarch64/"; "")' "$LOCK" | sort | tr '\n' ' ')
+got_libs=$(find "$PAK/libs.aarch64" -maxdepth 1 -name '*.so*' -printf '%f\n' | sort | tr '\n' ' ')
+libs_msg="libs.aarch64/ holds exactly the pinned LOVE runtime libraries"
+[ "$got_libs" = "$want_libs" ] || libs_msg="$libs_msg -- want [$want_libs] got [$got_libs]"
+[ "$got_libs" = "$want_libs" ]
+check $? "$libs_msg"
+
+# The strip actually happened. Covered by the name set above, but called out so
+# a build that silently regains 8.4 MB is named rather than inferred.
+strip_ok=0
+while read -r rel; do
+    [ -n "$rel" ] || continue
+    [ ! -e "$PAK/$rel" ] || { bad "stripped library is still staged: $rel"; strip_ok=1; }
+done < <(jq -r '.love_runtime.strip[]?' "$LOCK")
+check $strip_ok "libraries listed in love_runtime.strip are not installed"
 
 rt_ok=0
 while IFS=$'\t' read -r rel want; do
@@ -253,29 +272,76 @@ want_ident=$(jqlock '.contracts.love_identity')
 grep -q "$want_ident" "$PAK/game/conf.lua"
 check $? "LOVE identity is still '$want_ident' (our XDG_DATA_HOME layout depends on it)"
 
-# How the engine discovers a dump on Linux. Getting this wrong is invisible
-# off-device: the pak stages a ROM somewhere the engine never reads, and the game
-# just says "no ROM" with no error. It cost a device trip once already.
+# How the engine takes a dump from the player, and therefore what launch.sh may
+# claim. Getting this wrong is invisible off-device: the pak used to stage a ROM
+# where the engine no longer looks, and the game just says "no ROM".
 IMP="$PAK/game/src/import/RomImporter.lua"
-grep -q 'getDirectoryItems("")' "$IMP" 2>/dev/null
-check $? "the engine still scans the PhysFS root for a pending ROM"
 
+# The engine now opens its OWN file browser on Linux and returns before the
+# pending-ROM scan. That is why launch.sh reports paths instead of staging
+# copies -- see contracts.rom_discovery in upstream.lock.
+grep -q "$(jqlock '.contracts.rom_discovery.browser')" "$IMP" 2>/dev/null
+check $? "the engine still opens $(jqlock '.contracts.rom_discovery.browser') to choose a ROM"
+
+# The moment this stops being true, an unattended import becomes possible again
+# and the report-only scan should be revisited -- so it is asserted, not assumed.
+# findPendingRom is unreachable while the browser exists: the Choose flow returns
+# at the Kit.FileBrowser call above it (RomImporter.lua ~2765, plain-Linux
+# branch), and the engine's other two call sites are Android-gated.
 grep -q 'findPendingRom' "$IMP" 2>/dev/null
-check $? "findPendingRom still exists (the Linux fallback launch.sh relies on)"
+check $? "findPendingRom still exists upstream (unreachable on Linux, but watch it)"
 
-# If upstream ever ungates this, baseroms/ becomes viable and this note should be
-# revisited -- but until then, staging there is a silent no-op on Linux.
-grep -qE 'baseRomDiscovery[[:space:]]*=.*isUWP' "$IMP" 2>/dev/null
-check $? "baseroms/ discovery is still Xbox-only (so we must stage at the save root)"
+# launch.sh must not go back to copying dumps into the save dir: that imports
+# nothing now and duplicates 1-2 MiB per version.
+code_only | matches 'cp -f "[$]rom"' \
+    && bad "launch.sh copies dumps into the save dir again -- the engine no longer reads them" \
+    || ok "launch.sh does not stage dumps (the engine browses for them itself)"
 
-code_only | matches 'SAVEROOT'
-check $? "launch.sh stages ROMs at the save-dir root, not in a subfolder"
+# And it must not delete them either. A dump at the save root is
+# indistinguishable from one the player put there by hand.
+code_only | matches 'rm -f "[$]SAVEROOT"/[*][.]gb' \
+    && bad "launch.sh deletes dumps from the save dir -- they may be the player's own" \
+    || ok "launch.sh never deletes a dump from the save dir"
 
 code_only | matches 'baseroms' && bad "launch.sh still references baseroms/, which Linux never reads" || ok "launch.sh does not use the Xbox-only baseroms/ path"
 
-want_gbcfx=$(jqlock '.contracts.gbcfx_env')
-grep -rq "$want_gbcfx" "$PAK/game/src/" 2>/dev/null
-check $? "$want_gbcfx is still honoured by the engine"
+# ShaderFX, and what holds it off. This replaced the old POKEPORT_GBCFX check
+# when upstream deleted src/render/GBCFX.lua after 0.2.20; launch.sh now sets no
+# shader env var at all, so the thing worth asserting is the tier rule that keeps
+# the pass from running. See contracts.shaderfx in upstream.lock.
+FX_MODULE="$PAK/game/$(jqlock '.contracts.shaderfx.module')"
+PERF="$PAK/game/src/core/Performance.lua"
+
+[ -f "$FX_MODULE" ]
+check $? "$(jqlock '.contracts.shaderfx.module') is present (it replaced GBCFX)"
+
+# The old module must stay gone. If upstream restores it, the voxel-mod patch
+# below is obsolete and must be deleted rather than carried.
+gone="$PAK/game/$(jqlock '.contracts.shaderfx.removed_module')"
+[ ! -f "$gone" ]
+check $? "$(jqlock '.contracts.shaderfx.removed_module') is still absent (else drop the voxel patch)"
+
+# arm/arm64 on Linux -- every device this pak targets -- must still resolve to
+# the tier we rely on.
+wanted_tier=$(jqlock '.contracts.shaderfx.arm_linux_tier')
+grep -qE 'isArm[[:space:]]+and[[:space:]]+os[[:space:]]*==[[:space:]]*"Linux"' "$PERF" 2>/dev/null \
+    && grep -A2 -E 'isArm[[:space:]]+and[[:space:]]+os[[:space:]]*==[[:space:]]*"Linux"' "$PERF" 2>/dev/null \
+       | matches "return \"$wanted_tier\""
+check $? "Performance.detect still returns '$wanted_tier' for arm Linux"
+
+# ...and that tier's cap must still be a hard off, not a resolution multiplier.
+grep -E "^[[:space:]]*${wanted_tier}[[:space:]]*=" "$PERF" 2>/dev/null \
+    | matches 'shaderfx[[:space:]]*=[[:space:]]*false'
+check $? "Performance.CAPS.$wanted_tier still sets shaderfx = false (no shader pass on this hardware)"
+
+# Nothing for a preset to auto-activate: the pak must ship no slang preset.
+[ -z "$(find "$PAK/game" -name '*.slangp' -print -quit 2>/dev/null)" ]
+check $? "no .slangp preset is shipped (nothing for POKEPORT_SHADERFX to pick up)"
+
+# launch.sh must not resurrect the dead switch.
+code_only | matches "$(jqlock '.contracts.shaderfx.removed_env')" \
+    && bad "launch.sh sets $(jqlock '.contracts.shaderfx.removed_env'), which the engine no longer reads" \
+    || ok "launch.sh does not set the removed $(jqlock '.contracts.shaderfx.removed_env')"
 
 sha_ok=0
 for v in $(jq -r '.contracts.rom_sha1|keys_unsorted[]' "$LOCK"); do
@@ -359,6 +425,31 @@ if [ -d "$MOD_DIR" ]; then
     [ -f "$PAK/licenses/LICENSE.$MOD_NAME.txt" ]
     check $? "voxel mod licence is copied into licenses/"
 
+    # Carried patches (voxel_mod.patches in upstream.lock). Assert the EFFECT on
+    # the staged tree, not that build.sh ran -- a patch that applied to the wrong
+    # place still applies cleanly.
+    patch_ok=0
+    while IFS= read -r rel; do
+        [ -n "$rel" ] || continue
+        [ -f "$ROOT/$rel" ] || { bad "upstream.lock pins patch $rel, which is missing"; patch_ok=1; }
+    done < <(jq -r '.voxel_mod.patches[]?' "$LOCK")
+    check $patch_ok "every patch upstream.lock pins is present in the tree"
+
+    # The GBCFX patch: no unguarded require of the deleted module may survive.
+    # Bare `require("src.render.GBCFX")` throws -- and at pinEngineFx, at the top
+    # of the ui.options.rows hook, Hooks.lua logs-and-skips the whole wrapper, so
+    # the mod's OPTIONS rows vanish. On a handheld those rows are the only way to
+    # reach the 3D toggle (the mod's hotkeys are keyboard-only).
+    gbcfx_ok=0
+    if grep -rqE 'require\("src\.render\.GBCFX"\)[[:space:]]*\.' "$MOD_DIR" 2>/dev/null; then
+        bad "voxel mod still has a bare require(\"src.render.GBCFX\").<field> -- the patch did not take"
+        gbcfx_ok=1
+    fi
+    check $gbcfx_ok "voxel mod makes no unguarded require of the removed GBCFX module"
+
+    grep -rq 'pcall(require, "src.render.GBCFX")' "$MOD_DIR" 2>/dev/null
+    check $? "voxel mod's GBCFX requires are pcall-guarded (patch applied)"
+
     # Manifest against the lock and against the loader's own gates. A mod the
     # loader refuses is indistinguishable on device from one that crashed.
     man="$MOD_DIR/manifest.json"
@@ -398,7 +489,23 @@ if [ -d "$MOD_DIR" ]; then
     # those, and writing our file first would lose every setting the player had.
     code_only | matches '\.bak' && code_only | matches '\.tmp' \
         || { bad "launch.sh seeds options.lua without checking for .bak/.tmp -- that would eat the player's settings"; idx_ok=1; }
-    check $idx_ok "mod index matches the lock, and the seed respects options recovery"
+    # The seed happens ONCE. Without a marker, the empty-list branch would put
+    # the catalogue back on the next launch after a player removed it in-game --
+    # the opposite of what the README promises.
+    code_only | matches 'SEEDED=' \
+        || { bad "launch.sh has no seeded-once marker; a removed catalogue would come back"; idx_ok=1; }
+    code_only | matches '\[ -e "[$]SEEDED" \]' \
+        || { bad "launch.sh does not check the seeded marker before adding the catalogue"; idx_ok=1; }
+
+    # It may rewrite options.lua only when the list is demonstrably empty, and it
+    # must never write the engine's own recovery copy.
+    code_only | matches 'modIndexes = \{\},' \
+        || { bad "launch.sh no longer matches the engine's empty-modIndexes form"; idx_ok=1; }
+    # Writes only. `[ ! -e "$OPTS.bak" ]` is the recovery GUARD and must stay.
+    code_only | matches '(>[[:space:]]*"?[$]OPTS[.]bak|(cp|mv)[^|]*[$]OPTS[.]bak)' \
+        && { bad "launch.sh writes options.lua.bak -- that is the engine's recovery copy"; idx_ok=1; }
+
+    check $idx_ok "mod index matches the lock, seeds once, and respects options recovery"
 
     # Regression guard. The mod this replaced carried 14 MB of Windows OpenXR
     # loader (oxr/, oxr.zip) that cannot execute on aarch64 Linux. Nothing should
@@ -409,6 +516,28 @@ else
     note "voxel mod not present (built with --no-voxel)"
 fi
 
+# ------------------------------------------- hand-installed mod drop folder
+# $PAK_DIR/mods is what the engine's adoptStrays() scans (getSourceBaseDirectory()
+# for our `love.aarch64 "$PAK_DIR/game"` launch). Shipping it with a note is the
+# whole feature -- an empty folder gets found, a README path does not.
+[ -d "$PAK/mods" ]
+check $? "the hand-installed mod drop folder is shipped (mods/)"
+
+[ -f "$PAK/mods/README.txt" ]
+check $? "mods/README.txt tells the player what to put there"
+
+# It must ship EMPTY. A mod staged here would be adopted into every player's
+# save dir on first launch, which is not something a pak should do silently --
+# bundled mods go in game/mods/ and are declared in upstream.lock.
+drop_extra="$(find "$PAK/mods" -mindepth 1 ! -name 'README.txt' -print -quit)"
+[ -z "$drop_extra" ]
+check $? "mods/ ships empty apart from the note (nothing is adopted behind the player)"
+
+# Creating it is launch.sh's job too: a player who deletes the folder must get
+# it back rather than losing the route entirely.
+code_only | matches 'mkdir -p "[$]MODDROP"'
+check $? "launch.sh recreates the drop folder if it is missing"
+
 # ------------------------------------------------------- launch.sh shape
 group "launch.sh"
 
@@ -416,7 +545,18 @@ head -1 "$ROOT/launch.sh" | grep -q '^#!/bin/sh$'
 check $? "shebang is #!/bin/sh, not bash (PortMaster can hijack /bin/bash on these cards)"
 
 # Cheap bashism screen. CI additionally runs this under dash via test-launch.sh.
-bashisms=$(grep -nE '\[\[|\bfunction [a-zA-Z_]|[a-zA-Z_]+\+=|<<<|\bdeclare\b|\blocal\b|\bsource\b|&>' "$ROOT/launch.sh" || true)
+#
+# Whole-line comments are dropped first. They are never executed, and leaving them
+# in produced three false positives in one sitting: the pattern holds \bsource\b
+# and \bfunction [a-zA-Z_], so the ordinary English "the source is game/" and
+# "function parameter" each failed the build from a comment.
+#
+# Dropped with grep -v rather than code_only(), which strips from the first '#'
+# to end of line and would corrupt every ${var##*/} and ${var%% *} in the file --
+# that is exactly why this screen reads the raw script. A trailing comment on a
+# line of code is still scanned, which is the rare case and worth keeping strict.
+bashisms=$(grep -vE '^[[:space:]]*#' "$ROOT/launch.sh" \
+           | grep -nE '\[\[|\bfunction [a-zA-Z_]|[a-zA-Z_]+\+=|<<<|\bdeclare\b|\blocal\b|\bsource\b|&>' || true)
 [ -z "$bashisms" ]
 check $? "no obvious bashisms${bashisms:+ -- $bashisms}"
 

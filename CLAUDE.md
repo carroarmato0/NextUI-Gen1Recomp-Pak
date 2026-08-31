@@ -98,16 +98,31 @@ the pak directory — a pak update would otherwise destroy them.
   `contracts.legacy_mod_ids` in `upstream.lock` is the source of truth; `launch.sh` deletes each id
   from the pak's own `game/mods/` and only *reports* a copy in the player's save dir, and
   `verify.sh` asserts both the staged tree and `launch.sh`'s hard-coded copy of the list.
-- **Gen1Recomp has an official mod index, and `launch.sh` seeds it on fresh installs only.**
-  `bryanthaboi/gen1recomp-mod-index`, ~107 mods, pinned in `contracts.mod_index`. The engine ships
-  none configured by design (`src/mods/ModIndex.lua`: adding one is a deliberate act of trust), but
-  the "ask" costs a URL typed on a d-pad, so the pak enters it once. **The guard is the interesting
-  part:** it writes only when `options.lua`, `options.lua.bak` *and* `options.lua.tmp` are all
-  absent. `SaveData.loadOptions` heals from the `.bak`/`.tmp` copies when the main file is missing,
-  so writing ours over that state would destroy every setting the player had. `verify.sh` asserts
-  both the slug and the presence of that guard. `ModIndex.resolveSource` also accepts a bare
-  `owner/repo`, which is what the README tells people to type. Works on device only because of the
-  CA bundle. Player-installed mods land in `$SAVEROOT/mods/`, so a pak update leaves them alone.
+- **Gen1Recomp has an official mod index, and `launch.sh` seeds it ONCE — on a fresh install, or
+  into an empty list.** `bryanthaboi/gen1recomp-mod-index`, ~107 mods, pinned in
+  `contracts.mod_index`. The engine ships none configured by design (`src/mods/ModIndex.lua`:
+  adding one is a deliberate act of trust), but the "ask" costs a URL typed on a d-pad.
+  **The guards are the interesting part, and there are now three.**
+  (1) A fresh install is written only when `options.lua`, `options.lua.bak` *and* `options.lua.tmp`
+  are all absent — `SaveData.loadOptions` heals from the `.bak`/`.tmp` copies when the main file is
+  missing, so writing ours over that state would destroy every setting the player had.
+  (2) An **existing** file is edited only when it contains the engine's exact serialized empty form,
+  matched anchored to the whole line as `  modIndexes = {},`. A configured catalogue is a multi-line
+  block, so the pattern cannot match it; failing to match does nothing, which is the safe outcome.
+  The original is copied to `options.lua.pak-preseed` — **never** `options.lua.bak`, which belongs to
+  the engine's recovery and clobbering it would destroy the thing guard (1) exists to protect.
+  (3) `$SAVEROOT/.pak-mod-index-seeded` records that we have had our one go, so a player who removes
+  the catalogue in-game does not get it back next launch. Without it the empty-list branch would
+  re-add it forever, which is the opposite of what the README promises. The marker sits beside
+  `options.lua` rather than in the state root, so wiping the save directory really does start over.
+  `verify.sh` asserts the slug, both guards, the marker, and that nothing writes `options.lua.bak`;
+  `test/test-launch.sh` decodes the **rewritten** file with the engine's own `SaveSerializer`,
+  because asserting on the text we wrote is exactly what let a bare `{` ship once.
+  Verified on a Brick, 2026-08-31: a real 14 KB options.lua with `modIndexes = {}` was rewritten,
+  all 54 top-level keys survived, the engine parsed it and then fetched the catalogue.
+  `ModIndex.resolveSource` also accepts a bare `owner/repo`, which is what the README tells people to
+  type. Works on device only because of the CA bundle. Player-installed mods land in
+  `$SAVEROOT/mods/`, so a pak update leaves them alone.
 - **Choosing a version does not choose what gets imported, and that is upstream, not us.** On Linux
   `chooseRom` (zenity/kdialog) is absent, so `RomImporter.lua:1971` falls back to
   `findPendingRom(self.ready)` — the **first** not-yet-imported `.gb/.gbc` in
@@ -124,6 +139,26 @@ the pak directory — a pak update would otherwise destroy them.
   `ModIndex.fetchText` synchronously. Players also report freezes on first listing load and on
   paging, which are **not** explained by the async feed path; the 142 KB / 107-mod parse on the main
   thread is a candidate, unproven. Do not describe the trigger more confidently than that.
+- **`DRAMATIC_SHAPE` 1.8.2 is now BROKEN on 0.2.43, not merely a conflict — observed on a Smart Pro
+  S, 2026-08-31.** Its `main.lua` calls `require("src.render.GBCFX")` in **three** places (`:672`,
+  `:690`, `:852`), and the engine deleted that module after 0.2.20. It gets no patch from us: it is
+  the player's own copy in `$SAVEROOT/mods/`, not the one we ship. So in a **Gen 1** game it loads
+  (our mod declares the conflict and therefore loses), and then throws. In a Gen 2 game it is
+  skipped outright — `[info] mod DRAMATIC_SHAPE skipped: not marked gen2compat` — which is why the
+  symptom is version-dependent and looks intermittent. Reported symptom was a sluggish launcher with
+  the pad cursor vanishing; removing the mod cleared it and `loaded mod DRAMALESS_SHAPE 2.0.3`
+  appeared. **Consistent, not proven** — the same session also involved a reboot and a different
+  game — but the mechanism is concrete. `launch.sh` still only REPORTS a save-dir copy and must not
+  delete it; the fix is the player's to make.
+- **The voxel mod's water shader does not compile on Mali, and the mod's own fallback cannot fix
+  it.** On a Smart Pro S (Mali-G57), 2026-08-31: `S0023: Function 'effect' redeclared with a
+  different precision qualifier on the RETURN TYPE`, twice, then `lakes draw flat`. The mod pins
+  precision on **parameters only** (`lib/Water.lua:951`) and retries with `EFFECT_PREC` as `mediump`
+  then empty (`:1157`) — neither attempt touches the return type, which is what Mali objects to, so
+  both fail. **Whether a Brick is affected is UNTESTED** — no Brick session has been run with water
+  visible and the log checked, so "PowerVR accepts it" is an inference from Mali being the stricter
+  compiler, not an observation. Do not repeat it as fact. Mod-side either way, and the visible cost
+  is flat lakes. Not yet reported upstream.
 - **The official index lists `DRAMATIC_SHAPE` 1.8.2, and installing it silently disables our mod.**
   Verified 2026-08-14: same id, same `github` field, **196 of 222 files byte-identical** to the
   1.7.2 we removed, hosted by the `scottcandy34` mirror, still **no LICENSE file**. The prohibition
@@ -162,6 +197,90 @@ the pak directory — a pak update would otherwise destroy them.
   search-path order, and fails if `liblove` ever stops needing it. Do **not** bundle SDL2, freetype, openal or
   the rest of `liblove`'s dependencies — those come from the firmware, and shadowing the vendor SDL2
   breaks GLES.
+- **`POKEPORT_GBCFX` is gone, and the thing that now holds the shader off is the performance
+  tier.** Upstream deleted `src/render/GBCFX.lua` between 0.2.20 and 0.2.24 and replaced it with
+  `src/render/ShaderFX.lua` (libretro slang-shader presets). `POKEPORT_SHADERFX` is **not** a
+  replacement switch — it names a preset to auto-activate, so unset already means "no shader" and
+  there is nothing to set. The export was **deleted** rather than translated: a dead env var that
+  reads like a safety guard is worse than none. What actually keeps upstream issue #136's black
+  frame away is `Performance.detect()` returning `low` for `isArm and os == "Linux"` — every device
+  this pak targets — and `CAPS.low.shaderfx = false`, a hard off read before any preset is
+  considered. `verify.sh` asserts the tier rule, the cap, that the old module stays absent, that no
+  `.slangp` ships, and that `launch.sh` never re-adds the export.
+- **The bundled voxel mod is patched at build time, and the patch must be deleted rather than
+  carried.** `DRAMALESS_SHAPE` 2.0.1 — and 2.0.3, the latest, which predates the removal — still
+  `require`s the deleted `src.render.GBCFX` in two places. `main.lua:293` *looks* guarded but is
+  not: the `pcall` wraps the **call**, and the `require` is an argument, so it is evaluated first
+  and throws. That line is the first statement of `pinEngineFx`, which is the first statement of the
+  `ui.options.rows` hook, and `src/mods/Hooks.lua` logs-and-skips a wrapper that throws — so the
+  mod's rows never reach OPTIONS. Since the mod's hotkeys are keyboard-only, that leaves **no way to
+  toggle 3D on a handheld**, with nothing on screen to explain it. Upstream refused to shim it
+  (`gen1recomp#1823`, closed by the author as "this is a mod issue"); reported to the mod author as
+  `DRAMALESS_SHAPE#53`. `patches/DRAMALESS_SHAPE-gbcfx.patch` fixes both sites with the shape
+  upstream itself used at `src/import/LauncherSettings.lua`. `verify.sh` asserts the effect on the
+  staged tree **and** that `src/render/GBCFX.lua` has not come back — if it does, drop the patch.
+  Note the patch must preserve CRLF: 2.0.1's `main.lua` is CRLF throughout and a LF rewrite diffs
+  the whole file.
+- **`libs.aarch64/` is checked by exact name, not by count, and that is deliberate.** The check used
+  to be "exactly 4", which is satisfiable by editing a number — and that is precisely the wrong
+  reflex when upstream adds a library. The pinned `love_runtime.files` entries now *are* the
+  allowlist, so an unknown library fails by name. That is how `liblibrashader_bridge.so` was caught.
+  It is **stripped** (`love_runtime.strip`), because at 8.4 MB it exists only to translate `.slangp`
+  presets and the tier rule above means this hardware never enters that path; it took the pak from
+  22 MB to 37 MB and stripping puts it at 29 MB. `build.sh` copies **all** of `libs.aarch64/` and
+  then removes by name — never an allowlist copy, or the next new dependency becomes invisible.
+- **An engine update can invalidate the ROM cache, and the import gate must NOT track that.**
+  `CacheContract.isReady()` = the marker matches **and** `allRequiredFilesExist()`. Upstream grows
+  `CacheContract.REQUIRED_FILES` between releases — 0.2.x added entries deliberately, one commented
+  *"Caches made before RomExtractorGen2:extractText must be rebuilt"* — so a cache built by an older
+  engine goes stale and the version reappears asking to be imported. Measured on a Brick upgrading
+  0.1.98 -> 0.2.43: blue short 2 required files, yellow 4, gold 9, red 0 (already rebuilt). The
+  marker was NOT the issue — all four still read `rom-cache-v10:<sha1>` correctly. `saves/` is
+  untouched by this; only the decoded cache is rebuilt.
+  **`launch.sh`'s gate therefore keys on the STAGED DUMP, never the cache.** It used to check
+  `$SAVEROOT/<v>/data/generated` or `rom-cache.complete`, i.e. a hand copy of a contract that moves —
+  so it logged "every version already imported", skipped the scan, and a player whose dump was no
+  longer staged got the engine asking for a cartridge the pak refused to hand over. Do not
+  "improve" this by mirroring the required-file list: it changes every few releases and the failure
+  is silent. Staging costs ~1 MiB per Gen 1 cart and ~2 MiB per Gen 2 one, and buys automatic
+  recovery from every future invalidation. Verified on a Brick 2026-08-31 by deleting a staged dump
+  with its stale cache left in place: the scan re-staged it.
+- **The version table is ONE list, and adding a version is one line.** `ROM_TABLE` in `launch.sh`
+  holds `id label sha256` per row; `VERSIONS`, the staged-dump match, the scan match and the
+  accepted-dumps listing all derive from it. They were four parallel lists, which is how Gold got
+  into some and not others. `rom_match` is fed by **redirection, never a pipe** — a `while read` on
+  the right of a pipe runs in a subshell and every assignment is discarded — and it reads the global
+  `$_sha_want` rather than taking `$1`, because `verify.sh` forbids `$1/$@/$*` anywhere in
+  `launch.sh` and cannot tell a positional parameter in a helper from a launch argument.
+- **Silver is supported; Crystal is not, and the blocker is that only SHA-1 is published.**
+  `GameVersion.lua` declares six versions as of 0.2.43 (Crystal with two revisions). Silver's
+  SHA-256 was measured on a Brick, 2026-08-31, from the owner's own dump whose SHA-1 matched the
+  engine's `silver` row exactly; the ROM was read to hash it and nothing kept. No Crystal dump has
+  been available. Everything upstream publishes is SHA-1 (`GameVersion.lua`, every
+  `tools/rom_manifest_*.json`), and SHA-256 cannot be derived from it. **Do not guess one**: a wrong
+  hash makes the scan match nothing and log nothing, which is how Gold stayed invisible for two
+  releases.
+- **Hand-installed mods go in `$PAK_DIR/mods/`, and that folder is the engine's choice, not ours.**
+  `LauncherMods.adoptStrays()` runs once per session just before the MODS listing is built and
+  **copies** strays into the save dir's `mods/`. It scans `SaveData.gameFolders()` — on Linux
+  `getSource()` and `getSourceBaseDirectory()`. We exec `love.aarch64 "$PAK_DIR/game"`, so the first
+  is `game/`, which `isReadableRoot` skips as already on the read path, and the second is
+  **`$PAK_DIR`**. So `$PAK_DIR/mods/` is the one folder already being watched, and it happens to sit
+  next to `launch.sh` where a player will look. `build.sh` ships it with a `README.txt`; `launch.sh`
+  only recreates it and **reports** what is in it. Do **not** make `launch.sh` copy mods into the
+  save dir: adoption already has an "already installed wins" rule, and a shell copy would race it.
+  `verify.sh` asserts the folder and note ship, that it ships **empty** (a mod staged there would be
+  adopted into every player's save dir silently), and that `launch.sh` recreates it. Not yet watched
+  on hardware — it is traced through the code only, and belongs on the device checklist.
+- **`verify.sh`'s bashism screen now skips whole-line comments, and it had to.** The pattern holds
+  `\bsource\b` and `\bfunction [a-zA-Z_]`, so the ordinary English "the source is game/" and
+  "function parameter" in a *comment* each failed the build — three times in one sitting before the
+  screen was fixed. It drops comment lines with `grep -v`, **not** `code_only()`: `code_only` strips
+  from the first `#` to end of line and would corrupt every `${var##*/}` and `${var%% *}` in the
+  file, which is exactly why this screen reads the raw script. A trailing comment on a line of code
+  is still scanned. Verified after the change that all eight bashism forms are still caught. Also
+  worth copying rather than rediscovering: use `[$]` in a `matches` or `grep -E` pattern, never
+  `\$`, or shellcheck raises SC2016.
 - **The device has no CA store.** `/etc/ssl/certs`, `/etc/ssl/cert.pem` and `/etc/pki` are all
   absent, and the engine does HTTPS by shelling out to `curl` (`src/net/Fetch.lua`). Without a
   bundle every request fails with curl exit 60, surfacing in the mod manager as a failed update
@@ -194,10 +313,18 @@ the pak directory — a pak update would otherwise destroy them.
 - **Do not read `scaling_cur_freq` as CPU load.** schedutil parks the clock at the ceiling
   regardless of utilisation; profile-device.sh once concluded "CPU-bound" from it on a session
   that was plainly GPU-bound. Difference `/proc/stat` jiffies instead.
-- **The controller GUID string in `launch.sh` is still unconfirmed**, even though the *behaviour* it
-  is meant to produce is verified — physical A confirms on a Brick. Those are different claims: the
-  default mapping could be producing that on its own. Only `test/smoke/` prints the joystick's real
-  name and GUID, and only comparing them settles whether our override does anything.
+- **The controller mapping IS ours, confirmed 2026-08-31 — and comparing GUIDs is the wrong test.**
+  This was an open question for weeks. Settled by making `test/smoke/` print
+  `love.joystick.getGamepadMappingString()`: the live mapping came back as our `TRIMUI Player1`
+  with `a:b1,b:b0`, so the override is applied and it is what makes physical A confirm.
+  The GUIDs do **not** match and that is fine. The Brick reports
+  `0300a3845e0400008e02000014010000`; we ship `030000005e0400008e02000014010000`. SDL 2.0.18+ puts a
+  CRC16 of the device name in bytes 2-3 of the GUID and falls back to matching with that field
+  zeroed, so our zero-CRC string matches and SDL re-stamps the returned mapping with the device's
+  real CRC. **Do not "fix" the GUID in `launch.sh` to the device's value** — the earlier strict
+  equality check in `verify-device.sh` did exactly that as a `FAIL`, and it was a false alarm. The
+  check now compares the mapping body instead, which is the thing that actually decides A vs B.
+  Device joystick name is `"Xbox 360 Controller"`, 15 buttons, 6 axes.
 - **Know what the CPU-tuning block actually does per platform before touching it.** NextUI runs
   `governor.sh performance` immediately before launching any pak (`skeleton/SYSTEM/<plat>/paks/
   MinUI.pak/launch.sh:189`), which sets `performance` at the true hardware max.
@@ -209,6 +336,64 @@ the pak directory — a pak update would otherwise destroy them.
     so failing to restore the online mask leaks into the rest of the user's session.
   - The audio justification inherited from nx-redux remains unverified. If it is dropped, drop the
     governor line, not the core onlining — they are separate claims with separate evidence.
+- **`launch.sh` must never `exec` love, and that is load-bearing.** It did until v0.4.3, and `exec`
+  replaces the shell — so `trap cleanup EXIT INT TERM HUP QUIT` could not fire and **nothing
+  cleanup() restores was ever restored**. Measured on a Brick, 2026-08-31: ceiling 1.8 GHz before,
+  2.0 GHz during, still 2.0 GHz after the game exited, with only a zombie `launch.sh` left. On
+  tg5040 the frontend mostly masks it (NextUI resets governor and ceiling after a pak returns); the
+  part it does **not** redo is the tg5050 online mask, so five cores stayed up for the rest of the
+  session. Love now runs as a **foreground child** followed by `exit "$status"`: a signal arriving
+  during a foreground command is held until it completes and is delivered to the whole process
+  group, so love sees it, exits, and only then does the trap run — no signal forwarding or orphan
+  reaping to get wrong, which `&` + `wait` would have required. Costs one idle shell resident during
+  play (3836 kB measured). Re-measured after the fix on the same Brick: 1.8 GHz restored, no stray
+  processes. `test/test-launch.sh` asserts there is no `exec` of love, and that the exit status is
+  logged and propagated.
+  **Confirmed on a Smart Pro S, 2026-08-31 — the device the leak actually mattered on.** Cores
+  `0-1,4` before, `0-7` running, back to `0-1,4` after; ceilings 1320000/2088000 raised to
+  1416000/2160000 and restored; `/sys/fs/cgroup/cpuset/gen1recomp` created with 20 tasks and gone on
+  exit. That closes the one claim in this fix that had only ever been reasoned about.
+- **The log now ends with `=== love exited with status N ===`, which sharpens an old diagnostic.**
+  A log that stops dead right after `=== love output follows ===` used to be ambiguous; it now means
+  love died before returning, which is the libmpg123 signature (issue #1). A clean quit says so.
+- **shellcheck reports the trap-invoked functions differently per version, and CI runs an older one.**
+  Neither `cleanup` nor `restore_cpu_state` is credited as called, because `trap cleanup EXIT` is not
+  counted as an invocation — and it only began reporting once the script stopped ending in `exec`.
+  **0.11 raises SC2329 on the function; 0.9 (Ubuntu 24.04, the CI runner) raises SC2317 on every
+  command inside it.** Disabling only the code your local build emits passes locally and fails in
+  CI — that is exactly how PR #13 went red. Both functions carry
+  `# shellcheck disable=SC2329,SC2317`. The directive must be the **last** comment line before the
+  function or the following comment lines are parsed as part of it (SC1072/SC1073). Do not move this
+  to `.shellcheckrc`: that would hide genuinely dead functions across `scripts/`. To check the CI
+  version locally, fetch the static binary from `koalaman/shellcheck` releases and lint with both.
+- **`verify-device.sh` grades `$LOG`, so it must guarantee the log is FRESH.** It used to print an
+  instruction and wait for Enter. An Enter pressed before launching left every group grading a log
+  from an earlier session: a run where the device was never touched reported *8 passed, 0 failed*
+  against a thirteen-minute-old log, twice. It now clears the log and **blocks** — `await_launch`
+  polls for the log reappearing (launch.sh started), then for `love.aarch64` going away (it
+  finished). `wait_for_exit` already existed for this and had never been called. Also:
+  `logtext()` must `tr -d '\r'`, because adb hands back CRLF and any exact string comparison fails
+  on the stray CR while the regex checks quietly tolerate it — that produced a false mapping
+  mismatch where the two strings were otherwise byte-identical.
+- **The smoke test runs fine headlessly over ADB, which is more than the game manages.** Driven with
+  `start-stop-daemon` while `verify-device.sh --smoke` waits, it reports renderer, window size,
+  audio, joystick and mapping without anyone touching the device. Confirmed on a Brick:
+  `OpenGL ES 3.2 ... Imagination Technologies PowerVR Rogue GE8300`, 1024x768, `audio: ok`. The
+  *game* still needs a real launch — it stays on the launcher headlessly (RSS ~44 MB, no mod load).
+- **The two devices really do have different GPUs, and the smoke test now proves it.** Measured
+  2026-08-31: Smart Pro S reports `OpenGL ES 3.2 ... ARM Mali-G57`, Brick reports
+  `OpenGL ES 3.2 ... Imagination Technologies PowerVR Rogue GE8300`. Same GLES level, different
+  vendor — so the platform table is right and the `MALI_CreateWindow` line below is the red herring
+  it is documented as.
+- **Both devices report the SAME controller GUID but a DIFFERENT button count.** 11 buttons on the
+  Smart Pro S, 15 on the Brick, 6 axes on each, and `guid=0300a3845e0400008e02000014010000` with
+  name `"Xbox 360 Controller"` on both. The shipped mapping only reaches `b10`, so it fits the
+  smaller set; it was confirmed live on both. Do not derive a per-device mapping from the button
+  count without checking the GUID first — they are not in step.
+- **`SDL_CreateWindow: ... 1024 768` in a tg5050 log is NOT a bug.** `conf.lua` asks for a
+  1024x768 desktop window and the handheld then goes fullscreen; that line logs the request, not the
+  result. The smoke test reads the real size afterwards and reported `window: 1280x720` on the same
+  run. On a Brick the two happen to coincide, which is why this only looks alarming on a Smart Pro S.
 - **`MALI_CreateWindow` in the log does not mean Mali.** The vendor SDL2 prints it on tg5040 too,
   where the GPU is PowerVR: device-tree `compatible` is `img,gpu`, `/sys/kernel/debug/pvr/` exists,
   and the same library exports `PVR_Vulkan_*`. Do not "correct" the platform table from that line.
@@ -217,10 +402,26 @@ the pak directory — a pak update would otherwise destroy them.
 - **NextUI cannot launch a directory.** `addEntries` marks any directory `ENTRY_DIR` unless it ends
   `.pak`. That is why the old Emu layout needed a 0-byte `Gen1Recomp.g1r` stub, and why it shipped
   broken for anyone whose card lacked the folder. Under `Tools/` the `.pak` directory *is* the entry.
-- **The ROM scan is the only import path, so it matches folders the way NextUI does.** `getEmuName`
+- **The pak no longer imports ROMs; it reports where they are.** Gen1Recomp 0.2.x replaced the
+  pending-ROM scan with its own file browser. `RomImporter`'s Choose flow on Linux opens
+  `Kit.FileBrowser` and **returns** before reaching `findPendingRom` — at `:2765`, the plain-Linux
+  branch, since none of `HANDHELD/PORTMASTER/POKEPORT_HANDHELD/TRIMUI/MUOS/KNULLI` are set for a pak
+  (verified on a Brick, 2026-08-31). `findPendingRom` still exists but its other two callers are
+  Android-only: one behind `mobileFileBridge`, one inside `focus()`, which returns unless
+  `self.android`. So staging a dump imports nothing and duplicates 1-2 MiB per version.
+  `launch.sh` now hashes the player's dumps and logs each one's **path**, because the browser opens
+  at `/mnt/SDCARD` and the path is all that is still needed. It **never copies and never deletes** —
+  a dump at the save root cannot be told apart from one the player put there, so old staged copies
+  are reported as removable and left alone. `verify.sh` asserts the browser is still what the engine
+  opens, that `findPendingRom` still exists (so its return to reachability is noticed), and that
+  `launch.sh` neither copies nor deletes. Upstream fixed `#1274` in the same change — `findPendingRom`
+  gained a `wanted` argument — so "choose Red, import Blue" is gone. Reported as
+  `bryanthaboi/gen1recomp#2025`: try `findPendingRom` first, keep the browser as the fallback.
+  If that lands, revisit the report-only scan.
+- **The ROM scan still matches folders the way NextUI does.** `getEmuName`
   (`workspace/all/common/utils.c:352`) takes the tag in a folder's *last* parentheses, or the whole
-  name when there are none — `Game Boy (GB)`, `Nintendo Game Boy (GB)` and `GB` are one system to the
-  frontend. `launch.sh` mirrors that rule. It used to hard-code two display names, which found
+  name when there are none — `Game Boy (GB)`, `Nintendo Game Boy (GB)` and `GB` are one system to
+  the frontend. `launch.sh` mirrors that rule. It used to hard-code two display names, which found
   nothing on a renamed folder and reported no error.
 - **An update cannot remove the v0.1.0 install, so `launch.sh` removes half of it.**
   `Roms/Gen1Recomp (Gen1Recomp)/` is deleted outright: everything in it came from this project, and

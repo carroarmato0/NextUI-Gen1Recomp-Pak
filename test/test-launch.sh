@@ -87,7 +87,7 @@ SB="$(make_sandbox)"
 run_launch "$SB"
 grep -q "LOVE_ARGV: $SB/pak/game" "$SB/stub.out" 2>/dev/null
 check $? "launches the game even with no ROM (never a black screen)"
-log_of "$SB" | grep -q "no match found"
+log_of "$SB" | grep -q "no recognised dump found"
 check $? "logs that no ROM matched"
 log_of "$SB" | grep -q "5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b"
 check $? "logs the accepted SHA-256s so the user can check their dump"
@@ -122,242 +122,130 @@ else
     else ok "stays quiet about Swap.pak when swap exists"; fi
 fi
 rm -rf "$SB"
-
 # --------------------------------------------------------------------------
+# The pak REPORTS where your dumps are; it no longer copies them. Gen1Recomp
+# 0.2.x opens its own file browser and never reaches findPendingRom, so a staged
+# copy imports nothing. See contracts.rom_discovery in upstream.lock.
 echo
-echo "ROM scan matches by hash and copies into the import folder"
+echo "identifies dumps by hash and reports their path"
 SB="$(make_sandbox)"
+BR="$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d"
 FIXTURE="$SB/SDCARD/Roms/Game Boy (GB)/Pokemon Red (USA).gb"
 head -c 1048576 /dev/urandom > "$FIXTURE"
 FIX_SHA="$(sha256sum "$FIXTURE" | cut -d' ' -f1)"
-# Stand the fixture's hash in for Red's. Everything else -- the globbing over a
-# path with spaces and parens, the ._ filter, the copy -- is the real code path.
-#
-# SHA-256, not SHA-1: the device ships no sha1sum, which is why the scan matches
-# on sha256 (see upstream.lock contracts.rom_sha256).
+# Stand the fixture's hash in for Red's. Everything else -- globbing a path with
+# spaces and parens, the ._ filter, the size filter -- is the real code path.
 sed -i "s/5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b/$FIX_SHA/" "$SB/pak/launch.sh"
-# AppleDouble decoy, deliberately sorted ahead of the real dump.
 printf 'junk' > "$SB/SDCARD/Roms/Game Boy (GB)/._Pokemon Red (USA).gb"
-
 run_launch "$SB"
-log_of "$SB" | grep -q "matched Red"
-check $? "identifies the version by SHA-256 through a path with spaces and parens"
-log_of "$SB" | grep -q "staged 1 dump"
-check $? "reports how many dumps were imported"
-[ -f "$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d/Pokemon Red (USA).gb" ]
-check $? "stages the dump at the save-dir root, where findPendingRom looks"
+log_of "$SB" | grep -q "Red  ->  .*Pokemon Red (USA).gb"
+check $? "reports the version and full path, through spaces and parens"
+log_of "$SB" | grep -q "Choose ROM browser"
+check $? "says what the path is for"
+# The point of the change: nothing is copied any more.
+[ -z "$(find "$BR" -maxdepth 1 -name '*.gb' 2>/dev/null)" ]
+check $? "copies nothing into the save dir (the engine browses instead)"
 [ -f "$FIXTURE" ] && [ "$(sha256sum "$FIXTURE" | cut -d' ' -f1)" = "$FIX_SHA" ]
-check $? "leaves the user's own file untouched"
-# The decoy sorts ahead of the real dump, so a naive scan would copy it. Assert
-# on the import folder's actual contents rather than on log text, which would
-# pass for the wrong reason.
-BR="$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d"
-[ -z "$(find "$BR" -name '._*' 2>/dev/null)" ] && [ "$(count_dumps "$BR")" -eq 1 ]
-check $? "skips the AppleDouble decoy and imports exactly one file"
-
-# A rerun must not re-stage the dump that is already sitting there waiting to be
-# decoded. (It must still scan: see "imports a version added after an earlier
-# one" below for why skipping outright is wrong.)
-run_launch "$SB"
-[ "$(count_dumps "$BR")" -eq 1 ]
-check $? "a rerun leaves the already-staged dump alone"
+check $? "leaves the player's own file untouched"
+log_of "$SB" | grep -q "._Pokemon"
+if [ $? -eq 0 ]; then bad "reported an AppleDouble decoy"; else ok "skips ._ AppleDouble files"; fi
 rm -rf "$SB"
 
 # --------------------------------------------------------------------------
-# The scan is the only way a dump ever gets imported, so which folders it
-# considers is load-bearing. NextUI resolves a ROM folder to a system by the tag
-# in its last parentheses, or the whole name when there are none, so the display
-# name in front of the tag is the player's to choose.
 echo
 echo "finds dumps in any folder NextUI would call GB or GBC"
 for folder in "Nintendo Game Boy (GB)" "GB" "gbc" "Handhelds - Game Boy Color (GBC)"; do
     SB="$(make_sandbox)"
     mkdir -p "$SB/SDCARD/Roms/$folder"
-    head -c 1048576 /dev/urandom > "$SB/SDCARD/Roms/$folder/cart.gb"
-    SHA="$(sha256sum "$SB/SDCARD/Roms/$folder/cart.gb" | cut -d' ' -f1)"
-    sed -i "s/5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b/$SHA/" "$SB/pak/launch.sh"
+    F="$SB/SDCARD/Roms/$folder/cart.gb"
+    head -c 1048576 /dev/urandom > "$F"
+    sed -i "s/5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b/$(sha256sum "$F" | cut -d' ' -f1)/" "$SB/pak/launch.sh"
     run_launch "$SB"
-    [ -f "$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d/cart.gb" ]
-    check $? "imports from \"$folder\""
+    log_of "$SB" | grep -q "Red  ->  "
+    check $? "reports a dump in \"$folder\""
     rm -rf "$SB"
 done
 
 SB="$(make_sandbox)"
-# "(GBA)" ends in a tag we do not want; "Game Boy Advance" has no parens at all,
-# so getEmuName would return the whole name. Neither is ours to hash.
-mkdir -p "$SB/SDCARD/Roms/Game Boy Advance (GBA)" "$SB/SDCARD/Roms/Game Boy Advance"
-head -c 1048576 /dev/urandom > "$SB/SDCARD/Roms/Game Boy Advance (GBA)/x.gb"
+mkdir -p "$SB/SDCARD/Roms/Nintendo 64 (N64)"
+F="$SB/SDCARD/Roms/Nintendo 64 (N64)/cart.gb"
+head -c 1048576 /dev/urandom > "$F"
+sed -i "s/5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b/$(sha256sum "$F" | cut -d' ' -f1)/" "$SB/pak/launch.sh"
 run_launch "$SB"
-log_of "$SB" | grep -q "looking in .*GBA"
-if [ $? -eq 0 ]; then bad "scanned a GBA folder"; else ok "ignores folders tagged for other systems"; fi
-rm -rf "$SB"
-
-SB="$(make_sandbox)"
-rm -rf "$SB/SDCARD/Roms/Game Boy (GB)" "$SB/SDCARD/Roms/Game Boy Color (GBC)"
-run_launch "$SB"
-log_of "$SB" | grep -q "no Game Boy folder found"
-check $? "says so when there is nowhere to look, not just 'no match'"
+log_of "$SB" | grep -q "Red  ->  "
+if [ $? -eq 0 ]; then bad "looked inside a folder NextUI maps to another system"
+else ok "ignores folders whose tag is not GB/GBC"; fi
 rm -rf "$SB"
 
 # --------------------------------------------------------------------------
 echo
-echo "opt-out toggles"
+echo "reports every version present, not just the first"
 SB="$(make_sandbox)"
-mkdir -p "$SB/SDCARD/.userdata/shared/Gen1Recomp"
-touch "$SB/SDCARD/.userdata/shared/Gen1Recomp/no-cpu-tuning"
+R="$SB/SDCARD/Roms/Game Boy (GB)"
+head -c 1048576 /dev/urandom > "$R/a-blue.gb"
+head -c 1048576 /dev/urandom > "$R/z-red.gb"
+sed -i "s/2a951313c2640e8c2cb21f25d1db019ae6245d9c7121f754fa61afd7bee6452d/$(sha256sum "$R/a-blue.gb" | cut -d' ' -f1)/" "$SB/pak/launch.sh"
+sed -i "s/5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b/$(sha256sum "$R/z-red.gb" | cut -d' ' -f1)/" "$SB/pak/launch.sh"
 run_launch "$SB"
-log_of "$SB" | grep -q "tuning skipped"
-check $? "no-cpu-tuning disables the CPU block (needed to A/B the audio fix)"
+log_of "$SB" | grep -q "Blue  ->  .*a-blue.gb"
+check $? "reports Blue"
+log_of "$SB" | grep -q "Red  ->  .*z-red.gb"
+check $? "reports Red too -- stopping at the first would hide the rest"
 rm -rf "$SB"
 
 # --------------------------------------------------------------------------
+# Gen 2 carts are 2 MiB. A 1 MiB-only size filter is what made Gold invisible
+# when Gold first shipped, before its hash was ever computed.
 echo
-echo "missing payload fails loudly rather than silently"
+echo "accepts a 2 MiB Gen 2 dump (Gold), not just 1 MiB Gen 1 ones"
 SB="$(make_sandbox)"
-rm -f "$SB/pak/bin/love.aarch64"
+G="$SB/SDCARD/Roms/Game Boy Color (GBC)/gold.gbc"
+head -c 2097152 /dev/urandom > "$G"
+sed -i "s/fb0016d27b1e5374e1ec9fcad60e6628d8646103b5313ca683417f52b97e7e4e/$(sha256sum "$G" | cut -d' ' -f1)/" "$SB/pak/launch.sh"
 run_launch "$SB"
-[ $? -ne 0 ] && log_of "$SB" | grep -q "FATAL"
-check $? "exits non-zero with FATAL when the runtime is missing"
-rm -rf "$SB"
-
-SB="$(make_sandbox)"
-rm -f "$SB/pak/game/main.lua"
-run_launch "$SB"
-[ $? -ne 0 ] && log_of "$SB" | grep -q "FATAL"
-check $? "exits non-zero with FATAL when the game payload is missing"
+log_of "$SB" | grep -q "Gold  ->  .*gold.gbc"
+check $? "reports a 2 MiB Gold dump"
 rm -rf "$SB"
 
 # --------------------------------------------------------------------------
-echo
-echo "imports every version present, not just the first"
-SB="$(make_sandbox)"
-GB="$SB/SDCARD/Roms/Game Boy (GB)"
-head -c 1048576 /dev/urandom > "$GB/Pokemon - Blue Version.gb"
-head -c 1048576 /dev/urandom > "$GB/Pokemon - Red Version.gb"
-B_SHA="$(sha256sum "$GB/Pokemon - Blue Version.gb" | cut -d' ' -f1)"
-R_SHA="$(sha256sum "$GB/Pokemon - Red Version.gb" | cut -d' ' -f1)"
-sed -i "s/2a951313c2640e8c2cb21f25d1db019ae6245d9c7121f754fa61afd7bee6452d/$B_SHA/" "$SB/pak/launch.sh"
-sed -i "s/5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b/$R_SHA/" "$SB/pak/launch.sh"
-run_launch "$SB"
-BR="$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d"
-[ "$(count_dumps "$BR")" -eq 2 ]
-check $? "both dumps imported (Blue sorts first but must not hide Red)"
-log_of "$SB" | grep -q "staged 2 dump"
-check $? "reports both imports"
-rm -rf "$SB"
-
-# --------------------------------------------------------------------------
-# Regression, found on a Smart Pro S (2026-08-12). The gate used to be
-# all-or-nothing: one staged dump, or one decoded cache, skipped the entire scan
-# for good. A player who imported Red and Blue and only later added a Yellow
-# dump never got it -- the scan that would have matched it never ran again, and
-# the log said "already imported" as if everything were fine.
-echo
-echo "imports a version added after an earlier one"
-SB="$(make_sandbox)"
-GB="$SB/SDCARD/Roms/Game Boy (GB)"
-GBC="$SB/SDCARD/Roms/Game Boy Color (GBC)"
-BR="$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d"
-head -c 1048576 /dev/urandom > "$GB/Pokemon - Red Version.gb"
-R_SHA="$(sha256sum "$GB/Pokemon - Red Version.gb" | cut -d' ' -f1)"
-sed -i "s/5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b/$R_SHA/" "$SB/pak/launch.sh"
-run_launch "$SB"
-[ -f "$BR/Pokemon - Red Version.gb" ]
-check $? "fixture: the first launch stages Red"
-
-# The engine decodes Red on boot, writing its cache under red/. The staged dump
-# stays where it is -- leaving it is deliberate (findPendingRom skips versions
-# already imported), and it is exactly what tripped the old gate.
-mkdir -p "$BR/red/data/generated"
-
-# Only now does the player drop a Yellow dump onto the card.
-head -c 1048576 /dev/urandom > "$GBC/Pokemon - Yellow Version.gbc"
-Y_SHA="$(sha256sum "$GBC/Pokemon - Yellow Version.gbc" | cut -d' ' -f1)"
-sed -i "s/8cbaa499397e4f1a679c992ea9382a2dd7942ab398b48c19829c2d9529de47bf/$Y_SHA/" "$SB/pak/launch.sh"
-run_launch "$SB"
-[ -f "$BR/Pokemon - Yellow Version.gbc" ]
-check $? "stages a dump added after an earlier version was imported"
-log_of "$SB" | grep -q "matched Yellow"
-check $? "identifies it as Yellow"
-log_of "$SB" | grep -q "matched Red"
-if [ $? -eq 0 ]; then bad "re-staged Red, which the engine had already decoded"
-else ok "leaves the already-decoded Red alone"; fi
-[ "$(count_dumps "$BR")" -eq 2 ]
-check $? "ends up with exactly the two dumps, Red staged and Yellow added"
-rm -rf "$SB"
-
-# --------------------------------------------------------------------------
-echo
-echo "stops scanning only when there is genuinely nothing left to import"
-SB="$(make_sandbox)"
-BR="$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d"
-# Every version launch.sh knows about, read from launch.sh itself rather than
-# listed here: this test is about "all of them", and hard-coding three is what
-# made the scan stop before it ever looked for Gold.
-ALL_VERSIONS="$(sed -n 's/^VERSIONS="\(.*\)"/\1/p' "$ROOT/launch.sh")"
-# shellcheck disable=SC2086  # deliberate word split: VERSIONS is a space-separated list
-for v in $ALL_VERSIONS; do
-    mkdir -p "$BR/$v/data/generated"
-done
-# Either marker counts: the engine writes rom-cache.complete beside the
-# generated data (RomImporter.lua MARKER_PATH, CacheFs.lua:425).
-rm -rf "$BR/yellow/data"; mkdir -p "$BR/yellow"; touch "$BR/yellow/rom-cache.complete"
-head -c 1048576 /dev/urandom > "$SB/SDCARD/Roms/Game Boy (GB)/cart.gb"
-run_launch "$SB"
-log_of "$SB" | grep -q "every version already imported"
-check $? "skips the scan once every version is imported"
-log_of "$SB" | grep -q "looking in"
-if [ $? -eq 0 ]; then bad "hashed ROM folders with nothing left to import"
-else ok "hashes nothing when there is nothing left to import"; fi
-rm -rf "$SB"
-
-# --------------------------------------------------------------------------
-# The engine refuses anything that is not exactly 1 MiB (findPendingRom checks
-# #data == 1024*1024), so staging one would only produce a file it silently
-# ignores. Skipping them by size also keeps the now-repeating scan cheap: on a
-# real card it takes the hashing from 90 files down to 20.
 echo
 echo "ignores files that cannot be a cartridge dump"
 SB="$(make_sandbox)"
-BR="$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d"
-head -c 524288 /dev/urandom > "$SB/SDCARD/Roms/Game Boy (GB)/homebrew.gb"
-H_SHA="$(sha256sum "$SB/SDCARD/Roms/Game Boy (GB)/homebrew.gb" | cut -d' ' -f1)"
-# Even with a hash the scan would otherwise accept.
-sed -i "s/2a951313c2640e8c2cb21f25d1db019ae6245d9c7121f754fa61afd7bee6452d/$H_SHA/" "$SB/pak/launch.sh"
+H="$SB/SDCARD/Roms/Game Boy (GB)/homebrew.gb"
+head -c 524288 /dev/urandom > "$H"
+sed -i "s/2a951313c2640e8c2cb21f25d1db019ae6245d9c7121f754fa61afd7bee6452d/$(sha256sum "$H" | cut -d' ' -f1)/" "$SB/pak/launch.sh"
 run_launch "$SB"
-[ ! -f "$BR/homebrew.gb" ]
-check $? "does not stage a file of the wrong size"
+log_of "$SB" | grep -q "Blue  ->  "
+if [ $? -eq 0 ]; then bad "reported a file of the wrong size"; else ok "skips a file that is neither 1 nor 2 MiB"; fi
 rm -rf "$SB"
 
 # --------------------------------------------------------------------------
-# Gen 2 carts are 2 MiB, and the size pre-filter used to accept only 1 MiB. A
-# Gold dump was therefore skipped before its hash was ever computed, so the scan
-# found nothing and reported nothing wrong. Confirmed on a Brick, 2026-08-13:
-# the log said "all three versions already imported" with a Gold dump sitting in
-# the GBC folder. The engine accepts both sizes (RomImporter.isAcceptedRomSize).
+# Dumps older versions of this pak copied into the save dir. They import nothing
+# now, but they cannot be told apart from a file the player put there, so they
+# are reported and never removed.
 echo
-echo "imports a 2 MiB Gen 2 dump (Gold), not just 1 MiB Gen 1 ones"
+echo "previously staged dumps are reported, never deleted"
 SB="$(make_sandbox)"
 BR="$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d"
-GBC="$SB/SDCARD/Roms/Game Boy Color (GBC)"
-head -c 2097152 /dev/urandom > "$GBC/Pokemon - Gold Version.gbc"
-G_SHA="$(sha256sum "$GBC/Pokemon - Gold Version.gbc" | cut -d' ' -f1)"
-sed -i "s/fb0016d27b1e5374e1ec9fcad60e6628d8646103b5313ca683417f52b97e7e4e/$G_SHA/" "$SB/pak/launch.sh"
+mkdir -p "$BR"
+head -c 1048576 /dev/urandom > "$BR/old-staged.gb"
+head -c 2097152 /dev/urandom > "$BR/old-staged-2.gbc"
 run_launch "$SB"
-[ -f "$BR/Pokemon - Gold Version.gbc" ]
-check $? "stages a 2 MiB Gold dump"
-log_of "$SB" | grep -q "matched Gold"
-check $? "identifies it as Gold"
-# And the scan must not declare itself finished while Gold is still missing.
+log_of "$SB" | grep -q "2 dump(s) sit in"
+check $? "reports how many stale copies are in the save dir"
+log_of "$SB" | grep -q "Safe to delete"
+check $? "says they can be removed"
+[ -f "$BR/old-staged.gb" ] && [ -f "$BR/old-staged-2.gbc" ]
+check $? "does not delete them -- they may be the player's own files"
 rm -rf "$SB"
+
 SB="$(make_sandbox)"
-BR="$SB/SDCARD/.userdata/shared/Gen1Recomp/love/pokemon-love2d"
-mkdir -p "$BR/red/data/generated" "$BR/blue/data/generated" "$BR/yellow/data/generated"
 run_launch "$SB"
-log_of "$SB" | grep -q "every version already imported"
-if [ $? -eq 0 ]; then bad "called it done with Gold still not imported"
-else ok "keeps scanning while a known version is still missing"; fi
+log_of "$SB" | grep -q "sit in"
+if [ $? -eq 0 ]; then bad "reported stale dumps when the save dir was empty"
+else ok "stays quiet when the save dir holds no dumps"; fi
 rm -rf "$SB"
+
 
 # --------------------------------------------------------------------------
 echo
@@ -515,5 +403,178 @@ rm -rf "$SB"
 
 # --------------------------------------------------------------------------
 echo
+# --------------------------------------------------------------------------
+echo
+echo "an existing options.lua with no catalogue configured gets one, once"
+
+# The common case on a card that predates the seed, or whose options.lua the
+# engine wrote before this pak ever ran: the file exists, so the fresh-install
+# branch never fires, and modIndexes stays empty forever.
+mk_opts_empty_index() {
+    printf 'return {\n  musicVol = 7,\n  modIndexes = {},\n  modIndexCache = {},\n  safeMode = false,\n}\n' > "$1"
+}
+
+SB="$(make_sandbox)"
+O="$SB/SDCARD/$SAVE_REL/options.lua"
+mkdir -p "$SB/SDCARD/$SAVE_REL"; mk_opts_empty_index "$O"
+run_launch "$SB"
+grep -q 'gen1recomp-mod-index' "$O"
+check $? "adds the catalogue to an options.lua that had none"
+grep -q 'musicVol = 7' "$O"
+check $? "keeps the settings that were already there"
+grep -q 'safeMode = false' "$O"
+check $? "keeps settings that came after the line it rewrote"
+[ -f "$O.pak-preseed" ] && grep -q 'modIndexes = {},' "$O.pak-preseed"
+check $? "keeps the original under our own name, not options.lua.bak"
+[ ! -e "$O.bak" ]
+check $? "never touches options.lua.bak, which is the engine's recovery copy"
+log_of "$SB" | grep -q "no mod catalogue was configured"
+check $? "says so in the log rather than editing silently"
+
+# The decisive check: the ENGINE'S parser has to accept what we produced. Every
+# text assertion above passed once for a file the engine rejected at byte 31.
+SER="$ROOT/build/Gen1Recomp.pak/game/src/core/SaveSerializer.lua"
+if [ -f "$SER" ] && command -v lua >/dev/null 2>&1; then
+    lua -e '
+      local S = dofile("'"$SER"'")
+      local f = assert(io.open("'"$O"'", "r"))
+      local body = f:read("*a"); f:close()
+      local t, err = S.decode(body)
+      if not t then error("engine parser rejected the rewritten options.lua: " .. tostring(err)) end
+      assert(type(t.modIndexes) == "table", "modIndexes missing")
+      assert(type(t.modIndexes[1]) == "table", "positional row lost")
+      assert(type(t.modIndexes[1].feed) == "string", "row.feed must be a string")
+      assert(t.musicVol == 7, "an existing setting was lost in the rewrite")
+      assert(t.safeMode == false, "a setting after the rewritten line was lost")
+    ' >/dev/null 2>&1
+    check $? "the engine's own SaveSerializer decodes the REWRITTEN file intact"
+else
+    echo "  --   engine parser check skipped (need lua and a staged build)"
+fi
+
+# Second launch must not touch it again, and -- the point of the marker -- a
+# player who removes the catalogue must not have it put back.
+printf 'return {\n  musicVol = 7,\n  modIndexes = {},\n}\n' > "$O"
+rm -f "$O.pak-preseed"
+run_launch "$SB"
+grep -q 'gen1recomp-mod-index' "$O"
+if [ $? -eq 0 ]; then bad "re-added the catalogue after the player removed it"
+else ok "removed stays removed -- the seed happens once, not every launch"; fi
+[ ! -e "$O.pak-preseed" ]
+check $? "does not rewrite anything on the second launch"
+rm -rf "$SB"
+
+# A catalogue the player already configured is never rewritten: the populated
+# form is a multi-line block, so the empty-table pattern cannot match it.
+SB="$(make_sandbox)"
+O="$SB/SDCARD/$SAVE_REL/options.lua"
+mkdir -p "$SB/SDCARD/$SAVE_REL"
+printf 'return {\n  modIndexes = {\n    [1] = {\n      feed = "https://example.invalid/index.json",\n    },\n  },\n}\n' > "$O"
+BEFORE="$(sha256sum "$O" | cut -d' ' -f1)"
+run_launch "$SB"
+[ "$(sha256sum "$O" | cut -d' ' -f1)" = "$BEFORE" ]
+check $? "leaves an options.lua that already has an index byte-for-byte alone"
+rm -rf "$SB"
+
+# --------------------------------------------------------------------------
+echo
+echo "mods dropped into the pak's mods/ folder by hand"
+
+SB="$(make_sandbox)"
+rm -rf "$SB/pak/mods"
+run_launch "$SB"
+[ -d "$SB/pak/mods" ]
+check $? "creates the drop folder if a player deleted it"
+rm -rf "$SB"
+
+SB="$(make_sandbox)"
+# build.sh ships the note; launch.sh must not rewrite it. Stand in for it here.
+mkdir -p "$SB/pak/mods"
+echo "shipped note" > "$SB/pak/mods/README.txt"
+mkdir -p "$SB/pak/mods/CoolMod"
+echo '{"id":"CoolMod"}' > "$SB/pak/mods/CoolMod/manifest.json"
+run_launch "$SB"
+log_of "$SB" | grep -q "hand-installed mod ready to import: CoolMod"
+check $? "reports a valid hand-installed mod"
+[ "$(cat "$SB/pak/mods/README.txt")" = "shipped note" ]
+check $? "does not rewrite the shipped README.txt"
+log_of "$SB" | grep -q "README.txt"
+if [ $? -eq 0 ]; then bad "warned about its own README.txt"
+else ok "does not mistake README.txt for a mod"; fi
+# Adoption is the engine's job -- launch.sh must not pre-empt its
+# "already installed wins" rule by copying anything itself.
+[ ! -e "$SB/SDCARD/$SAVE_REL/mods/CoolMod" ]
+check $? "copies nothing into the save dir (adoption is the engine's)"
+[ -f "$SB/pak/mods/CoolMod/manifest.json" ]
+check $? "leaves the player's files where they put them"
+rm -rf "$SB"
+
+SB="$(make_sandbox)"
+mkdir -p "$SB/pak/mods"
+echo "PK" > "$SB/pak/mods/SomeMod.zip"
+run_launch "$SB"
+log_of "$SB" | grep -q "SomeMod.zip is still zipped"
+check $? "warns about a mod left zipped"
+rm -rf "$SB"
+
+SB="$(make_sandbox)"
+mkdir -p "$SB/pak/mods/Outer/Inner"
+echo '{"id":"Inner"}' > "$SB/pak/mods/Outer/Inner/manifest.json"
+run_launch "$SB"
+log_of "$SB" | grep -q "Outer is nested one level too deep"
+check $? "warns about a mod unzipped one level too deep"
+rm -rf "$SB"
+
+SB="$(make_sandbox)"
+mkdir -p "$SB/pak/mods/NotAMod"
+echo "junk" > "$SB/pak/mods/NotAMod/readme.md"
+run_launch "$SB"
+log_of "$SB" | grep -q "NotAMod has no manifest.json"
+check $? "warns about a folder with no manifest.json"
+rm -rf "$SB"
+
+SB="$(make_sandbox)"
+mkdir -p "$SB/pak/mods"
+run_launch "$SB"
+# Scoped to mods lines: the sandbox ships no CA bundle, so the log
+# legitimately carries an unrelated "tls WARNING".
+log_of "$SB" | grep -q "^mods .*WARNING"
+if [ $? -eq 0 ]; then bad "warned about an empty drop folder"
+else ok "stays quiet when the drop folder is empty"; fi
+rm -rf "$SB"
+
+# --------------------------------------------------------------------------
+echo
+echo "love runs as a child, so the cleanup trap can actually fire"
+
+# The bug this guards: launch.sh used to end in `exec love`, which replaces the
+# shell -- and a replaced shell cannot run `trap cleanup EXIT`. Everything
+# cleanup() restores was therefore never restored. Confirmed on a Brick,
+# 2026-08-31: the CPU ceiling stayed raised after the game exited.
+grep -qE '^[[:space:]]*exec "[$]PAK_DIR/bin/love.aarch64"' "$ROOT/launch.sh"
+if [ $? -eq 0 ]; then bad "launch.sh execs love -- that discards the cleanup trap"
+else ok "launch.sh does not exec love (the trap would be discarded)"; fi
+
+SB="$(make_sandbox)"
+run_launch "$SB"
+log_of "$SB" | grep -q "love exited with status 0"
+check $? "carries on past love and logs its exit status"
+rm -rf "$SB"
+
+# The status has to survive, or NextUI cannot tell a crash from a clean quit.
+SB="$(make_sandbox)"
+cat > "$SB/pak/bin/love.aarch64" <<'STUB'
+#!/bin/sh
+echo "LOVE_ARGV: $*" > "$LOVE_STUB_OUT"
+exit 42
+STUB
+chmod +x "$SB/pak/bin/love.aarch64"
+run_launch "$SB"
+[ $? -eq 42 ]
+check $? "propagates love's exit status rather than swallowing it"
+log_of "$SB" | grep -q "love exited with status 42"
+check $? "records a non-zero exit in the log"
+rm -rf "$SB"
+
 printf '%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

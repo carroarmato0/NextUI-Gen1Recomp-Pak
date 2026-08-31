@@ -120,6 +120,9 @@ save_cpu_state() {
 "
     done
 }
+# Called from cleanup() only, so shellcheck's unreachable-code warnings cascade
+# onto it from there. SC2329 on 0.11, SC2317 on older builds -- see cleanup().
+# shellcheck disable=SC2329,SC2317
 restore_cpu_state() {
     printf '%s' "$CPU_SAVED" | while IFS="$(printf '\t')" read -r pol gov mx mn; do
         [ -d "$pol" ] || continue
@@ -137,6 +140,16 @@ restore_cpu_state() {
     done
 }
 
+# Invoked by `trap cleanup EXIT ...` below, which shellcheck does not count as a
+# call. It only began reporting SC2329 once this script stopped ending in `exec`
+# -- and that trap is precisely why the exec had to go. The directive has to be
+# the LAST comment line before the function or it is parsed as part of itself.
+#
+# Both codes are needed: shellcheck 0.11 reports SC2329 on the function, older
+# versions -- including the one on the CI runner -- report SC2317 on each command
+# inside it instead. Disabling only the one your local build happens to emit
+# passes locally and fails in CI.
+# shellcheck disable=SC2329,SC2317
 cleanup() {
     echo 0 > /sys/class/speaker/mute 2>/dev/null
     rm -f "$HOME/.asoundrc" 2>/dev/null
@@ -390,6 +403,54 @@ for id in $LEGACY_MODS; do
     echo "legacy    disable it from the in-game mod manager to use the bundled mod."
 done
 
+# --- mods the player dropped in by hand ------------------------------------
+# $PAK_DIR/mods is the one folder the engine already watches. adoptStrays()
+# scans SaveData.gameFolders() -- getSource() and getSourceBaseDirectory() on
+# Linux -- once per session just before the MODS listing, and COPIES what it
+# finds into the save dir. We exec love.aarch64 with $PAK_DIR/game, so the first
+# of those is game/ (skipped, already on the read path) and the second is
+# $PAK_DIR itself.
+#
+# build.sh ships this folder with a README.txt in it; recreate the folder if a
+# player deleted it, but never rewrite the note -- the text lives in build.sh.
+# Nothing is copied here: adoption is the engine's job, and doing it ourselves
+# would race its "already installed wins" rule.
+MODDROP="$PAK_DIR/mods"
+mkdir -p "$MODDROP" 2>/dev/null || echo "mods      WARNING: $MODDROP is not writable"
+
+# Report only. A mod that never appears in-game is otherwise undiagnosable
+# without a device trip, and the two mistakes below are the likely ones.
+for entry in "$MODDROP"/*; do
+    [ -e "$entry" ] || continue          # unmatched glob
+    name="${entry##*/}"
+    [ "$name" = "README.txt" ] && continue
+    if [ -d "$entry" ]; then
+        if [ -f "$entry/manifest.json" ]; then
+            echo "mods      hand-installed mod ready to import: $name"
+        else
+            # The usual slip: unzipping produced mods/Foo/Foo/manifest.json.
+            # Checked with a loop, not `[ -f "$entry"/*/... ]` -- an unmatched
+            # glob passes the literal pattern to test, and a multi-match makes
+            # it a syntax error.
+            nested=0
+            for sub in "$entry"/*/manifest.json; do
+                [ -f "$sub" ] && nested=1
+            done
+            if [ "$nested" = 1 ]; then
+                echo "mods      WARNING: $name is nested one level too deep"
+                echo "mods        manifest.json must sit directly in $MODDROP/$name/"
+            else
+                echo "mods      WARNING: $name has no manifest.json; the game will ignore it"
+            fi
+        fi
+    else
+        case "$name" in
+            *.zip) echo "mods      WARNING: $name is still zipped; unzip it into its own folder" ;;
+            *)     echo "mods      WARNING: $name is a loose file; mods go in their own folder" ;;
+        esac
+    fi
+done
+
 # --- the mod catalogue, seeded once ----------------------------------------
 # The engine ships no catalogue and asks the player to add one, because adding
 # an index means trusting whoever publishes it (src/mods/ModIndex.lua). That is
@@ -424,27 +485,95 @@ MOD_INDEX_OWNER="bryanthaboi"
 MOD_INDEX_REPO="gen1recomp-mod-index"
 
 OPTS="$SAVEROOT/options.lua"
-if [ ! -e "$OPTS" ] && [ ! -e "$OPTS.bak" ] && [ ! -e "$OPTS.tmp" ]; then
-    if mkdir -p "$SAVEROOT" 2>/dev/null && cat > "$OPTS" <<EOF
-return {
-  modIndexes = {
-    [1] = {
-      url = "$MOD_INDEX_OWNER/$MOD_INDEX_REPO",
-      feed = "https://$MOD_INDEX_OWNER.github.io/$MOD_INDEX_REPO/data/index.json",
-      base = "https://$MOD_INDEX_OWNER.github.io/$MOD_INDEX_REPO/",
-      fallback = "https://raw.githubusercontent.com/$MOD_INDEX_OWNER/$MOD_INDEX_REPO/main/site/data/index.json",
-      label = "$MOD_INDEX_OWNER/$MOD_INDEX_REPO",
-    },
-  },
+# One seed, ever. The marker is what makes "remove it in-game and it stays
+# removed" true: without it, the empty-list branch below would put the catalogue
+# back on the very next launch, which is the opposite of what the README promises.
+# It lives beside options.lua rather than in the state root so that wiping the
+# save directory really does mean starting over.
+SEEDED="$SAVEROOT/.pak-mod-index-seeded"
+
+# The rows ModIndex.resolveSource expands a bare "owner/repo" into. Kept as a
+# contract in upstream.lock (contracts.mod_index) so verify.sh catches drift.
+#
+# THE "[1] =" IS LOAD-BEARING. options.lua is not read by Lua: the engine parses
+# it with src/core/SaveSerializer.lua, a restricted reader that accepts only
+# `ident = value` or `[key] = value` and fails on a positional entry. Writing the
+# list element as a bare "{" cost a release-blocking bug -- the file failed to
+# parse ("parse error at byte 31: expected key"), loadOptions fell back to
+# defaults, and the engine then wrote a full snapshot back, erasing the seed and
+# logging nothing the player would ever see. verify.sh decodes the exact file
+# this produces with the engine's own parser.
+mod_index_rows() {
+    printf '    [1] = {\n'
+    printf '      url = "%s/%s",\n' "$MOD_INDEX_OWNER" "$MOD_INDEX_REPO"
+    printf '      feed = "https://%s.github.io/%s/data/index.json",\n' "$MOD_INDEX_OWNER" "$MOD_INDEX_REPO"
+    printf '      base = "https://%s.github.io/%s/",\n' "$MOD_INDEX_OWNER" "$MOD_INDEX_REPO"
+    printf '      fallback = "https://raw.githubusercontent.com/%s/%s/main/site/data/index.json",\n' "$MOD_INDEX_OWNER" "$MOD_INDEX_REPO"
+    printf '      label = "%s/%s",\n' "$MOD_INDEX_OWNER" "$MOD_INDEX_REPO"
+    printf '    },\n'
 }
-EOF
-    then
+
+if [ -e "$SEEDED" ]; then
+    :   # had our one go; whatever the player did with it since is theirs
+elif [ ! -e "$OPTS" ] && [ ! -e "$OPTS.bak" ] && [ ! -e "$OPTS.tmp" ]; then
+    # A GENUINELY fresh install, and the .bak/.tmp test is not paranoia:
+    # SaveData.loadOptions RECOVERS from those copies when options.lua is missing
+    # (a guard added after an interrupted rewrite lost people every setting they
+    # had). Writing our file over a card that still holds a backup would step in
+    # front of that recovery and destroy the lot. Where no options file exists at
+    # all, a partial one is safe -- loadOptions merges whatever it reads over the
+    # defaults.
+    if mkdir -p "$SAVEROOT" 2>/dev/null && { printf 'return {\n  modIndexes = {\n'
+            mod_index_rows
+            printf '  },\n}\n'; } > "$OPTS"; then
+        : > "$SEEDED" 2>/dev/null
         echo "mods      fresh install: added the official mod catalogue to Find mods"
         echo "mods        $MOD_INDEX_OWNER/$MOD_INDEX_REPO"
         echo "mods      Remove it in-game if you would rather not browse it; it is not re-added."
     else
         echo "mods      could not seed the mod catalogue (continuing without it)"
         rm -f "$OPTS" 2>/dev/null
+    fi
+elif [ -f "$OPTS" ] && grep -q '^  modIndexes = {},$' "$OPTS" 2>/dev/null; then
+    # An install that predates the seed, or one whose options.lua the engine
+    # rewrote before we ever ran. The list is empty and we have never seeded, so
+    # this is still our one go.
+    #
+    # Matched on the engine's exact serialized form for an EMPTY table, anchored
+    # to the whole line. Any index the player has added makes this a multi-line
+    # block and the pattern misses -- so a configured catalogue is never touched,
+    # and neither is a file we do not recognise. Failing to match is the safe
+    # outcome: it does nothing.
+    tmp="$OPTS.pak-tmp"
+    if { while IFS= read -r line || [ -n "$line" ]; do
+             if [ "$line" = "  modIndexes = {}," ]; then
+                 printf '  modIndexes = {\n'
+                 mod_index_rows
+                 printf '  },\n'
+             else
+                 printf '%s\n' "$line"
+             fi
+         done < "$OPTS"; } > "$tmp" 2>/dev/null \
+       && [ -s "$tmp" ] \
+       && grep -q "$MOD_INDEX_OWNER.github.io" "$tmp" \
+       && [ "$(grep -c '' "$tmp")" -gt "$(grep -c '' "$OPTS")" ]; then
+        # The original is kept under our OWN name, never options.lua.bak -- that
+        # one belongs to the engine's recovery and clobbering it would destroy
+        # the very thing the guard above exists to protect.
+        cp -f "$OPTS" "$OPTS.pak-preseed" 2>/dev/null
+        if mv -f "$tmp" "$OPTS" 2>/dev/null; then
+            : > "$SEEDED" 2>/dev/null
+            echo "mods      no mod catalogue was configured; added the official one to Find mods"
+            echo "mods        $MOD_INDEX_OWNER/$MOD_INDEX_REPO"
+            echo "mods      Your previous options.lua is at $(basename "$OPTS").pak-preseed"
+            echo "mods      Remove it in-game if you would rather not browse it; it is not re-added."
+        else
+            rm -f "$tmp" 2>/dev/null
+            echo "mods      could not add the mod catalogue (continuing without it)"
+        fi
+    else
+        rm -f "$tmp" 2>/dev/null
+        echo "mods      could not rewrite options.lua safely; left it alone"
     fi
 fi
 
@@ -472,113 +601,130 @@ if [ -n "$DIAG" ]; then
     echo "diag      (diagnostics only -- arbitrary LOVE games are unsupported)"
     echo "diag      delete it from $STATE to get the game back"
     cd "$PAK_DIR" || exit 1
-    exec "$PAK_DIR/bin/love.aarch64" "$DIAG"
+    # A child, not exec, for the same reason as the game launch below: the CPU
+    # tuning above has already run, and exec would discard the trap that undoes it.
+    "$PAK_DIR/bin/love.aarch64" "$DIAG"
+    status=$?
+    echo "diag      exited with status $status"
+    exit "$status"
 fi
 
 [ -f "$GAME/main.lua" ] || { echo "FATAL: $GAME/main.lua is missing."; exit 1; }
 
-# GBC FX compiles its present pass on this GPU class and then displays a black
-# frame (upstream issue #136). Upstream's own RG34XXSP port disables it for the
-# same reason. love.system.getOS() returns "Linux" here, so upstream's Android
-# gate does not fire on its own. Setting this to 0 hides the OPTIONS row, pins
-# the level off, and heals a level persisted from another machine.
-export POKEPORT_GBCFX="${POKEPORT_GBCFX:-0}"
+# No shader env var is set here on purpose. POKEPORT_GBCFX used to pin GBC FX
+# off, because it compiled its present pass on this GPU class and then showed a
+# black frame (upstream issue #136); upstream deleted that module after 0.2.20.
+# Its replacement, ShaderFX, is held off by the performance tier instead --
+# arm64 Linux resolves to "low", whose caps set shaderfx false. See
+# contracts.shaderfx in upstream.lock; verify.sh asserts it.
 
-# --- one-time ROM import ---------------------------------------------------
-# Gen1Recomp needs a cartridge dump exactly once: it verifies the ROM, decodes
-# its data into a private cache, and never reads the ROM again. So rather than
-# asking the player to copy a dump into some pak-internal folder, look in the
-# Game Boy folders they already use and copy the first match across.
+# --- your cartridge dumps ---------------------------------------------------
+# Gen1Recomp needs a dump exactly once: it verifies the ROM, decodes its data
+# into a private cache, and never reads the ROM again.
 #
-# The player's own files are only ever read -- never moved, renamed or modified.
+# The pak does not hand it over any more -- the engine browses for it, and the
+# section further down explains why. All that happens here is identification:
+# hash the player's dumps and print where they are, so the path is in the log
+# when they are standing in the engine's file browser.
 #
-# Matched by SHA-256, not the SHA-1 upstream publishes. These devices ship
-# sha256sum and md5sum but NO sha1sum (verified on a Trimui Brick, 2026-08-11),
-# so a SHA-1 scan silently matched nothing at all. The constants below were
-# cross-checked against real Red and Blue dumps on-device.
+# The player's own files are only ever READ -- never moved, renamed, copied or
+# deleted.
+# Every version the engine can import: id, display label, and the SHA-256 of the
+# canonical US dump.
 #
-# The scan is only a convenience pre-filter: the engine still performs its own
-# authoritative SHA-1 check at import time. So even a wrong constant here fails
-# safe -- the player lands on Choose ROM rather than importing wrong data.
-# Where the engine actually looks on Linux.
+# ONE table. The version set, the staged-dump match, the scan match and the
+# "accepted dumps" listing further down are all derived from it. Those used to be
+# four parallel lists kept in step by hand, which is precisely what hid Gold: it
+# reached some of them and not others, and the scan reported nothing wrong.
+# Adding Crystal is now one line here plus one entry in upstream.lock.
 #
-# NOT baseroms/ -- that scan is gated behind `baseRomDiscovery`, which
-# RomImporter.lua sets to `opts.launcher and Platform.isUWP()`, i.e. Xbox only.
-# On Linux the engine tries zenity/kdialog (absent here), then falls back to
-# findPendingRom(), which scans the PhysFS root for a 1 MiB .gb/.gbc. LOVE mounts
-# the save directory into that root, so a dump dropped at the top of the save dir
-# is found; anything in a subfolder is invisible. SAVEROOT is set at the top of
-# this section.
-ROM_SHA256_RED=5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b
-ROM_SHA256_BLUE=2a951313c2640e8c2cb21f25d1db019ae6245d9c7121f754fa61afd7bee6452d
-ROM_SHA256_YELLOW=8cbaa499397e4f1a679c992ea9382a2dd7942ab398b48c19829c2d9529de47bf
-# Gold is Gen 2 and therefore 2 MiB, not 1 -- see the size filter below, which is
-# the reason a Gold dump was invisible to this scan when Gold first appeared.
-ROM_SHA256_GOLD=fb0016d27b1e5374e1ec9fcad60e6628d8646103b5313ca683417f52b97e7e4e
+# SHA-256, not the SHA-1 upstream publishes. These devices ship sha256sum and
+# md5sum but NO sha1sum (verified on a Trimui Brick, 2026-08-11), so the original
+# SHA-1 scan matched nothing at all -- silently. Every value here was taken from a
+# real cartridge dump and cross-checked on-device against that version's SHA-1 in
+# GameVersion.lua. verify.sh asserts they match contracts.rom_sha256.
+#
+# A wrong value fails SAFE: the engine still runs its own SHA-1 check at import
+# time, so the player lands on Choose ROM rather than on bad data.
+#
+# Gen 1 carts are 1 MiB and Gen 2 (Gold, Silver) are 2 MiB. Both sizes are
+# accepted by the filter in the scan below -- a 1 MiB-only filter is what made a
+# Gold dump invisible when Gold first appeared.
+ROM_TABLE="red Red 5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b
+blue Blue 2a951313c2640e8c2cb21f25d1db019ae6245d9c7121f754fa61afd7bee6452d
+yellow Yellow 8cbaa499397e4f1a679c992ea9382a2dd7942ab398b48c19829c2d9529de47bf
+gold Gold fb0016d27b1e5374e1ec9fcad60e6628d8646103b5313ca683417f52b97e7e4e
+silver Silver 72b190859a59623cbef6c49d601f8de52c1d2331b4f08a8d2acc17274fc19a8c"
 
-# Every version the engine knows about, in GameVersion.ORDER. Adding one here is
-# the whole change needed: the set below, the count that ends the scan and the
-# match list are all driven off it.
-VERSIONS="red blue yellow gold"
-
-# Which versions the engine already has, as a space-delimited set. Its decoded
-# cache lives in a per-version subfolder -- red/, blue/, yellow/ (GameVersion.lua
-# cachePrefix) -- finished when rom-cache.complete or the generated data is
-# there. A dump still staged at the save-dir root counts too: findPendingRom()
-# picks it up on the next boot, and leaving it there is deliberate.
+# rom_match -- with $_sha_want set, echo "<id> <label>" for a known dump, else
+# fail. It reads a global instead of taking a parameter on purpose: verify.sh
+# forbids $1/$@/$* anywhere in launch.sh, because a Tool pak is invoked with no
+# arguments and reading one was a real bug in the Emu layout. That check cannot
+# tell a positional parameter inside a helper from a launch argument, and the
+# check is worth more than the nicer signature.
 #
-# Per-version on purpose. This gate used to be all-or-nothing: any one staged
-# dump or decoded cache skipped the entire scan, for good. So a player who
-# imported Red and Blue and only later added a Yellow dump never got it -- the
-# scan that would have matched it never ran again, and the log said "already
-# imported" as though nothing were wrong. Found on a Smart Pro S, 2026-08-12.
-HAVE=" "
-want_count=0
-for v in $VERSIONS; do
-    want_count=$((want_count + 1))
-    if [ -d "$SAVEROOT/$v/data/generated" ] || [ -f "$SAVEROOT/$v/rom-cache.complete" ]; then
-        HAVE="$HAVE$v "
-    fi
-done
-# Staged but not yet decoded. Hashing is the only way to tell which version a
-# staged dump is, and it is cheap here: a handful of files at most.
-for f in "$SAVEROOT"/*.gb "$SAVEROOT"/*.gbc; do
-    [ -f "$f" ] || continue
-    case "$(sha256sum "$f" 2>/dev/null | cut -d' ' -f1)" in
-        "$ROM_SHA256_RED")    HAVE="$HAVE""red " ;;
-        "$ROM_SHA256_BLUE")   HAVE="$HAVE""blue " ;;
-        "$ROM_SHA256_YELLOW") HAVE="$HAVE""yellow " ;;
-        "$ROM_SHA256_GOLD")   HAVE="$HAVE""gold " ;;
-    esac
-done
-have_count=0
-for v in $VERSIONS; do
-    case "$HAVE" in *" $v "*) have_count=$((have_count + 1)) ;; esac
-done
+# Fed by redirection, never a pipe: a `while read` on the right of a pipe runs in
+# a subshell, and every assignment made inside it would be discarded.
+rom_match() {
+    while read -r _id _label _sha; do
+        [ -n "$_id" ] || continue
+        if [ "$_sha" = "$_sha_want" ]; then
+            printf '%s %s' "$_id" "$_label"
+            return 0
+        fi
+    done <<ROMTABLE
+$ROM_TABLE
+ROMTABLE
+    return 1
+}
 
-if [ "$have_count" -eq "$want_count" ]; then
-    echo "rom       every version already imported; skipping the scan"
-elif ! command -v sha256sum >/dev/null 2>&1; then
-    # Degrade rather than guess. Copying an unverified 1 MiB file into the import
-    # folder would just make the engine reject it later with less explanation.
-    echo "rom       sha256sum unavailable on this device; skipping the scan."
-    echo "rom       Use the game's Choose ROM screen instead."
+VERSIONS=""
+while read -r _id _label _sha; do
+    [ -n "$_id" ] || continue
+    VERSIONS="$VERSIONS$_id "
+done <<ROMTABLE
+$ROM_TABLE
+ROMTABLE
+
+# --- where your cartridge dumps are ----------------------------------------
+# REPORT ONLY. This used to COPY a matching dump into the save-dir root, because
+# the engine scanned that root (findPendingRom) and imported whatever it found
+# there. As of 0.2.x it does not.
+#
+# RomImporter's Choose flow on Linux now opens the engine's own file browser and
+# returns before the pending-ROM scan is ever reached:
+#
+#   RomImporter.lua:2744  if isHandheld then Kit.FileBrowser.open(); return end
+#   RomImporter.lua:2759  chooseRom()  -- zenity/kdialog, absent on these devices
+#   RomImporter.lua:2765  if Kit.FileBrowser then open(); return end   <-- ours
+#   RomImporter.lua:2782  findPendingRom(...)  -- only if Kit.FileBrowser is gone
+#
+# Verified on a Brick, 2026-08-31: none of HANDHELD/PORTMASTER/POKEPORT_HANDHELD/
+# TRIMUI/MUOS/KNULLI are set for a pak, so it is the plain-Linux branch at 2765
+# that opens the browser, not the handheld one at 2744. Either way it returns.
+# The engine's other two findPendingRom call sites are Android-only (one behind
+# mobileFileBridge, one inside focus(), which requires self.android).
+#
+# So a staged copy imports nothing and costs 1-2 MiB per version. What the player
+# actually needs is the PATH to pick in that browser -- which opens at
+# /mnt/SDCARD -- and that is what this prints.
+#
+# NOTHING HERE WRITES. The player's dumps are read to hash them and left exactly
+# where they are; existing staged copies are reported, never deleted. We cannot
+# tell a copy this pak made from a dump the player put there by hand, and
+# deleting the wrong one is unrecoverable.
+if ! command -v sha256sum >/dev/null 2>&1; then
+    echo "rom       sha256sum unavailable; cannot identify your dumps."
+    echo "rom       Use the game's Choose ROM screen and browse to them by hand."
 else
-    echo "rom       scanning for US Red/Blue/Yellow/Gold dumps"
     ROMS="${ROMS_PATH:-${SDCARD_PATH:-/mnt/SDCARD}/Roms}"
-    imported=0
+    found=0
     scanned=0
-    # Import EVERY version found, not just the first. The engine keeps the three
-    # games' data side by side and its launcher lets the player pick, so stopping
-    # at the first hit would arbitrarily hide the others -- and since the scan runs
-    # in alphabetical order, "first" would silently mean Blue over Red.
     # Which folder holds the player's dumps is their choice, not ours. NextUI maps
     # a ROM folder to a system by the tag in its LAST parentheses, falling back to
     # the whole folder name when there are none (utils.c:getEmuName) -- so
     # "Game Boy (GB)", "My Game Boy Stuff (GB)" and plain "GB" are all one system
-    # to the frontend. Mirror that rule rather than hard-coding two display names:
-    # this scan is now the only way a dump gets imported, and against a renamed
-    # folder a hard-coded name finds nothing and says nothing is wrong.
+    # to the frontend. Mirror that rule rather than hard-coding display names.
     for dir in "$ROMS"/*; do
         [ -d "$dir" ] || continue
         tag="${dir##*/}"
@@ -589,83 +735,77 @@ else
             GB|GBC|gb|gbc) ;;
             *) continue ;;
         esac
-        echo "rom         looking in $dir"
         scanned=$((scanned + 1))
+        # Named even when it holds nothing we recognise: "your folder was never
+        # looked at" and "your dump was not recognised" have different fixes, and
+        # the tag rule above is the usual reason for the first.
+        echo "rom         looking in $dir"
         for rom in "$dir"/*.gb "$dir"/*.gbc; do
             [ -f "$rom" ] || continue
             # Skip AppleDouble junk: a macOS "._cart.gb" ends in .gb and would
             # otherwise be hashed pointlessly.
             case "$(basename "$rom")" in ._*) continue ;; esac
-            # The engine accepts exactly two sizes and nothing else: 1 MiB for the
-            # Gen 1 carts and 2 MiB for Gen 2 (RomImporter.isAcceptedRomSize). So
-            # no other size can be any known version. This reads no file contents,
-            # and it keeps the hashing down -- on a real 90-ROM card it leaves
-            # about 30 files, which matters because the scan repeats on every
-            # launch until every version is in.
+            # The engine accepts exactly two sizes: 1 MiB for the Gen 1 carts and
+            # 2 MiB for Gen 2 (RomImporter.isAcceptedRomSize). Filtering first
+            # keeps the hashing down -- on a real 90-ROM card it leaves about 30.
             #
-            # 2 MiB is NOT optional: it is the whole reason a Gold dump was
-            # invisible here when Gold first shipped. A 1 MiB-only filter skipped
-            # it before its hash was ever computed, so the scan reported nothing
-            # wrong. Keep this in step with the engine.
+            # 2 MiB is NOT optional: a 1 MiB-only filter is what made a Gold dump
+            # invisible when Gold first shipped, before its hash was ever computed.
             #
             # find rather than stat(1), which the device does not ship: busybox
             # find reads the c suffix as exact bytes (confirmed on a Smart Pro S
             # and a Brick, including on a name full of spaces and brackets).
-            #
-            # Two separate invocations rather than one `-size A -o -size B`. The
-            # single-size form is what has actually been run on device; the -o
-            # form relies on find applying its implicit -print across an OR, which
-            # is true of GNU find but has not been checked on this busybox. This
-            # project has been bitten three times by assuming a tool behaves as it
-            # does on a desktop (sha1sum, stat, setsid), and the failure mode here
-            # is the silent one: every dump skipped, nothing logged.
+            # Two separate invocations rather than one `-size A -o -size B`: the
+            # single-size form is what has been run on device, and the -o form
+            # relies on find applying its implicit -print across an OR, which is
+            # unverified on this busybox and would fail silently.
             [ -n "$(find "$rom" -size 1048576c 2>/dev/null)" ] \
                 || [ -n "$(find "$rom" -size 2097152c 2>/dev/null)" ] \
                 || continue
-            sha=$(sha256sum "$rom" 2>/dev/null | cut -d' ' -f1)
-            case "$sha" in
-                "$ROM_SHA256_GOLD")   version=Gold;   vid=gold ;;
-                "$ROM_SHA256_RED")    version=Red;    vid=red ;;
-                "$ROM_SHA256_BLUE")   version=Blue;   vid=blue ;;
-                "$ROM_SHA256_YELLOW") version=Yellow; vid=yellow ;;
-                *) continue ;;
-            esac
-            # Already imported, or already staged from another folder: copying a
-            # 1 MiB file the engine would only skip buys nothing.
-            case "$HAVE" in *" $vid "*) continue ;; esac
-            echo "rom       matched $version: $rom"
-            mkdir -p "$SAVEROOT"
-            if cp -f "$rom" "$SAVEROOT/$(basename "$rom")"; then
-                imported=$((imported + 1))
-                HAVE="$HAVE$vid "
-            else
-                echo "rom       WARNING: could not copy $version into the import folder"
-            fi
+            _sha_want=$(sha256sum "$rom" 2>/dev/null | cut -d' ' -f1)
+            _m=$(rom_match) || continue
+            [ "$found" -eq 0 ] && {
+                echo "rom       your dumps, for the game's Choose ROM browser"
+                echo "rom       (it opens at /mnt/SDCARD -- navigate to the path shown):"
+            }
+            found=$((found + 1))
+            echo "rom         ${_m#* }  ->  $rom"
         done
     done
 
-    if [ "$imported" -gt 0 ]; then
-        echo "rom       staged $imported dump(s) in $SAVEROOT"
-        echo "rom       the engine decodes them on boot / via Choose ROM"
-    else
-        # Not an error. The game's own launcher has a Choose ROM screen with
-        # on-screen instructions, which is a far better failure mode than exiting
-        # to a black screen.
+    if [ "$found" -eq 0 ]; then
         if [ "$scanned" -eq 0 ]; then
-            # Distinguish "your dump is not one of the three" from "there is
-            # nowhere to look" -- the fixes are completely different.
             echo "rom       no Game Boy folder found under $ROMS. A folder counts"
             echo "rom       when its name ends in (GB) or (GBC), or is exactly GB"
             echo "rom       or GBC -- the same rule NextUI uses to pick an emulator."
+        else
+            echo "rom       no recognised dump found. Only the canonical US cartridges"
+            echo "rom       are accepted, by SHA-256:"
+            while read -r _id _label _sha; do
+                [ -n "$_id" ] || continue
+                printf 'rom         %-6s %s\n' "$_label" "$_sha"
+            done <<ROMTABLE
+$ROM_TABLE
+ROMTABLE
+            echo "rom       Check yours on the device with: sha256sum <file>"
         fi
-        echo "rom       no match found. Starting the built-in launcher so you can"
-        echo "rom       use its Choose ROM screen."
-        echo "rom       Accepted dumps (US cartridges only), by SHA-256:"
-        echo "rom         Red    $ROM_SHA256_RED"
-        echo "rom         Blue   $ROM_SHA256_BLUE"
-        echo "rom         Yellow $ROM_SHA256_YELLOW"
-        echo "rom         Gold   $ROM_SHA256_GOLD"
-        echo "rom       Check yours on the device with: sha256sum <file>"
+    fi
+
+    # Copies older versions of this pak staged into the save root. They did
+    # something once; they do not now. Reported so the space can be reclaimed --
+    # never deleted here, because a dump the player placed themselves is
+    # indistinguishable from one we copied.
+    stale=0
+    for f in "$SAVEROOT"/*.gb "$SAVEROOT"/*.gbc; do
+        [ -f "$f" ] || continue
+        stale=$((stale + 1))
+    done
+    if [ "$stale" -gt 0 ]; then
+        echo "rom       $stale dump(s) sit in $SAVEROOT."
+        echo "rom       Older versions of this pak copied them there so the engine"
+        echo "rom       could import them unattended; it no longer reads that folder,"
+        echo "rom       so they are now just duplicates. Safe to delete, and left"
+        echo "rom       alone here in case you put them there yourself."
     fi
 fi
 
@@ -675,4 +815,29 @@ fi
 cd "$GAME" || { echo "FATAL: cannot cd to $GAME"; exit 1; }
 echo "launch    $PAK_DIR/bin/love.aarch64 $GAME"
 echo "=== love output follows ==="
-exec "$PAK_DIR/bin/love.aarch64" "$GAME"
+
+# Run love as a CHILD and exit normally afterwards. Emphatically not `exec`:
+# exec replaces this shell, and a replaced shell cannot run `trap cleanup EXIT`.
+# Everything cleanup() puts back was therefore never put back -- measured on a
+# Brick, 2026-08-31, where the frequency ceiling stayed at the raised 2.0 GHz
+# after the game exited, with only a zombie launch.sh left behind.
+#
+# On tg5040 the frontend largely masks that: NextUI's launch loop resets the
+# governor and ceiling shortly after a pak returns. What it does NOT redo is
+# which cores are ONLINE, and on tg5050 this pak brings up five that NextUI
+# offlined at boot -- so those stayed up for the rest of the user's session,
+# costing battery in every app afterwards. That is the leak this closes.
+#
+# Foreground, not `&` + `wait`. A signal arriving while a foreground command runs
+# is held until that command completes (POSIX), and it is delivered to the whole
+# foreground process group, so love sees it too, exits, and THEN the trap runs.
+# Backgrounding would hand us the job of forwarding signals and reaping an
+# orphan, for no gain.
+#
+# The cost is this shell staying resident while the game runs: 3.8 MB measured on
+# the Brick. On a 1 GB device that is real but it is idle, so its pages are the
+# first the kernel reclaims -- a fair price for not leaking CPU state.
+"$PAK_DIR/bin/love.aarch64" "$GAME"
+status=$?
+echo "=== love exited with status $status ==="
+exit "$status"

@@ -15,11 +15,11 @@
   ],
   "gen1recomp": {
     "repo": "bryanthaboi/gen1recomp",
-    "tag": "v0.1.98",
-    "version": "0.1.98",
-    "asset": "gen1recomp-0.1.98-rg34xxsp-stockos64-mod.zip",
-    "sha256": "a3f3c464cc75d02a73a2af92c53f4edc6def5640c0f9e099d2b19ddf41fd3c82",
-    "size": 8124476
+    "tag": "v0.2.43",
+    "version": "0.2.43",
+    "asset": "gen1recomp-0.2.43-rg34xxsp-stockos64-mod.zip",
+    "sha256": "814d29b1ad48579d16e58f3c2f918c9866db4f91504c11bf9f96fe58801de5b4",
+    "size": 14202846
   },
   "game_payload": {
     "_comment": [
@@ -41,9 +41,9 @@
       "it is the exact LOVE build upstream tested this game version against, and it is",
       "hash-pinned per file. Nothing here is compiled either way; the game is Lua."
     ],
-    "asset": "gen1recomp-0.1.98.love",
-    "sha256": "a28b914f5265a52132cb743ba632e1c7bb81f5eb989829816c571adde798db55",
-    "size": 5947274
+    "asset": "gen1recomp-0.2.43.love",
+    "sha256": "2929a98fb53931e342151517d956356d7ab4785d7ce7e0a89b9d58fddc84c94f",
+    "size": 8860799
   },
   "love_runtime": {
     "version": "11.5",
@@ -55,7 +55,35 @@
       "libs.aarch64/libluajit-5.1.so.2": "b4b29431056a11fb2309d1327ac941193ad8113ca7bf48584af9965846fabc65",
       "libs.aarch64/libmodplug.so.1": "026b2287c9d68f920cf541b68b94f1a691168e4bbf301a8793f4114808aa8f95",
       "libs.aarch64/libogg.so.0": "66015f344b53895affd3ff153f402097ebaa2add33246bea2d7fca27b682e07a"
-    }
+    },
+    "_strip_comment": [
+      "Libraries upstream ships in libs.aarch64/ that this pak deliberately does NOT install.",
+      "",
+      "liblibrashader_bridge.so (8.4 MB) arrived with src/render/ShaderFX.lua between 0.2.24",
+      "and 0.2.39. It is ffi.load()ed for exactly one job: translating libretro .slangp presets",
+      "into the cached Lua artifact ShaderFX runs. On this hardware that job never happens.",
+      "Performance.detect() returns 'low' for arm/arm64 on Linux and CAPS.low.shaderfx is false,",
+      "a hard off checked before any preset is looked at -- see contracts.shaderfx. The pak also",
+      "ships no .slangp and a fresh save dir has none, so there is nothing to translate even if",
+      "a player forces the tier to HIGH from OPTIONS.",
+      "",
+      "That made it 8.4 MB of the 15 MB the pak grew by at 0.2.43 (22 MB -> 37 MB), for a code",
+      "path the engine refuses to enter, on 1 GB devices this pak already documents as memory-",
+      "and GPU-bound. Stripped, the pak is ~29 MB.",
+      "",
+      "It fails GRACEFULLY if a player does reach for it: ShaderFX's ensureLib() walks its",
+      "candidate paths under pcall and records libError, so a missing bridge is a logged",
+      "conversion failure and no shader, not a crash. A player who wants presets can put their",
+      "own build at any candidate path, or point LIBRASHADER_BRIDGE_DLL at one.",
+      "",
+      "build.sh copies the whole of libs.aarch64/ and then removes these by name, so a library",
+      "nobody has seen before still reaches the staged tree and trips verify.sh's exact-name",
+      "check. Dropping it at copy time would hide the next new dependency."
+    ],
+    "_strip_reason": "unreachable on these devices; see _strip_comment",
+    "strip": [
+      "libs.aarch64/liblibrashader_bridge.so"
+    ]
   },
   "mpg123": {
     "_comment": [
@@ -145,34 +173,50 @@
       "installed to 1.8 MB. What is left is lib/ (932K), data/ (268K) and assets/ (308K of",
       "markdown documentation only -- no runtime assets).",
       "",
-      "WHY THIS IS STILL 2.0.1 AND NOT 2.0.2, checked 2026-08-16: the 2.0.2 release zip ships NO",
-      "licence file anywhere in its tree, so build.sh refuses it ('voxel mod is missing LICENSE').",
-      "That is the guard working, not a build fault -- attribution travelling inside the artifact",
-      "is the whole reason this fork is the shippable one. The WORK is still licensed: LICENSE is",
-      "present at the root of the repo at tag v2.0.2, so this reads as a packaging slip, and 2.0.2",
-      "also converted every file CRLF -> LF, which is what a hand re-zip elsewhere would do. Asked",
-      "for a re-cut in artyrambles/DRAMALESS_SHAPE#42; move the pin when an asset carries LICENSE.",
+      "PINNED AT 2.0.3 since 2026-08-31. The 2.0.2 release zip shipped no licence file anywhere in",
+      "its tree, so build.sh refused it -- attribution travelling inside the artifact is the whole",
+      "reason this fork is the shippable one. Asked for a re-cut in artyrambles/DRAMALESS_SHAPE#42;",
+      "2.0.3 carries LICENSE (MIT, Stahltier and contributors) and the pin moved.",
       "",
-      "Nothing is lost by waiting. Ignoring line endings the whole 2.0.1 -> 2.0.2 delta is: the",
-      "version string, the manifest game_version floor (>=0.1.37 -> >=0.1.87), and the removal of",
-      "a baseroms/ folder holding one placeholder .txt. The author removed it because 0.1.91+",
-      "blocks a mod archive with a non-empty baseroms/ -- but that check is in the install-from-zip",
-      "path (LauncherMods._installZipInner), and we pre-stage into game/mods/ instead, so it never",
-      "applies to the bundled copy. Confirmed on a Brick 2026-08-16: 2.0.1, baseroms/ and all, runs",
-      "on 0.1.98. The author also reports 2.0.2 is slightly SLOWER, which a GPU-bound Brick cannot",
-      "spend. Note the 2.0.2 release notes claim the zip was flattened; it was not -- the asset is",
-      "still nested under DRAMALESS_SHAPE-2.0.2/, so archive_root above stays correct either way."
+      "ARCHIVE_ROOT IS NOW EMPTY, AND THAT IS NOT AN OVERSIGHT. 2.0.1 and 2.0.2 nested everything",
+      "under a single DRAMALESS_SHAPE-<version>/ folder; 2.0.3 really is flat -- assets/, data/,",
+      "lib/, LICENSE, CHANGELOG.md and manifest.json sit at the top level. (2.0.2's notes claimed a",
+      "flattening that had not happened, so check the asset rather than the notes.) build.sh accepts",
+      "either shape but only the one pinned here, so a change of layout fails the build instead of",
+      "installing a tree the loader finds no entry point in.",
+      "",
+      "IT STILL NEEDS OUR PATCH. 2.0.3 predates Gen1Recomp deleting src/render/GBCFX.lua and still",
+      "requires that module in two places, so patches/DRAMALESS_SHAPE-gbcfx.patch applies here too;",
+      "it was re-cut against 2.0.3 rather than left to apply at an offset. See voxel_mod.patches.",
+      "",
+      "2.0.3 fixes a render-distance maths error, renders overworld sprites larger than 16x16",
+      "correctly, and adds a draft MapGrids.lua. Its performance on a GPU-bound Brick has NOT been",
+      "measured against 2.0.1 -- the author reported 2.0.2 as slightly slower and that was one reason",
+      "the pin stayed put, so treat frame rate here as unverified until someone profiles it."
     ],
     "name": "DRAMALESS_SHAPE",
-    "version": "2.0.1",
-    "tag": "v2.0.1",
+    "version": "2.0.3",
+    "tag": "v2.0.3",
     "license": "MIT",
     "repo": "artyrambles/DRAMALESS_SHAPE",
-    "url": "https://github.com/artyrambles/DRAMALESS_SHAPE/releases/download/v2.0.1/DRAMALESS_SHAPE-2.0.1.zip",
-    "sha256": "4c824d47b566b88f9ac57b32ec40cb72cf74db95e2410727764b3ea93546fd72",
-    "size": 557084,
-    "archive_root": "DRAMALESS_SHAPE-2.0.1",
-    "install_path": "game/mods/DRAMALESS_SHAPE"
+    "url": "https://github.com/artyrambles/DRAMALESS_SHAPE/releases/download/v2.0.3/DRAMALESS_SHAPE-2.0.3.zip",
+    "sha256": "89f6fa078c78a6f6e34c98074ea50ff4f971eead992f27684b52eae0f4f5a1a2",
+    "size": 549781,
+    "archive_root": "",
+    "install_path": "game/mods/DRAMALESS_SHAPE",
+    "_patches_comment": [
+      "Patches applied to the mod at build time, in order. Each carries its full reasoning in",
+      "its own header; this list only says which are live.",
+      "",
+      "These are not enhancements and must not become a place to put them. Each one exists",
+      "because an upstream change broke the mod, is reported to the mod's author, and is to be",
+      "DELETED when a mod release carries the fix -- not carried forward. build.sh fails closed",
+      "if one stops applying, and verify.sh asserts the effect of each on the staged tree as",
+      "well as the condition that makes it obsolete."
+    ],
+    "patches": [
+      "patches/DRAMALESS_SHAPE-gbcfx.patch"
+    ]
   },
   "contracts": {
     "_comment": [
@@ -181,7 +225,41 @@
     ],
     "love_version": "11.5",
     "love_identity": "pokemon-love2d",
-    "gbcfx_env": "POKEPORT_GBCFX",
+    "_shaderfx_comment": [
+      "What replaced POKEPORT_GBCFX, and why launch.sh now exports nothing in its place.",
+      "",
+      "Through 0.2.20 the engine had src/render/GBCFX.lua: a fixed shader 'level ladder' that",
+      "compiled its present pass on this GPU class and then displayed a BLACK FRAME (upstream",
+      "issue #136), so launch.sh pinned it off with POKEPORT_GBCFX=0. Between 0.2.20 and 0.2.24",
+      "upstream DELETED that module, replacing it with src/render/ShaderFX.lua -- runtime",
+      "libretro slang-shader presets, backed by liblibrashader_bridge.so.",
+      "",
+      "POKEPORT_SHADERFX is not a replacement switch. It names a PRESET to auto-activate, and",
+      "unset already means 'no shader', so there is nothing for launch.sh to set. The export was",
+      "deleted rather than translated: a dead env var that reads like a safety guard is worse",
+      "than none, because the next person to read launch.sh would trust it.",
+      "",
+      "What actually keeps the black frame from returning is the performance tier.",
+      "Performance.detect() returns 'low' for arm/arm64 on Linux -- every device this pak",
+      "targets -- and CAPS.low.shaderfx is false: a hard off, read before any preset is",
+      "considered. The pak ships no .slangp and a fresh save dir has none, so the tier is",
+      "belt and braces rather than the only thing standing in the way.",
+      "",
+      "verify.sh asserts the tier rule and the cap against the payload, so an upstream change to",
+      "either fails the build here instead of showing up as a black screen on a device.",
+      "The old module is asserted ABSENT too: if it returns, patches/DRAMALESS_SHAPE-gbcfx.patch",
+      "is obsolete and must be deleted rather than carried."
+    ],
+    "shaderfx": {
+      "module": "src/render/ShaderFX.lua",
+      "removed_module": "src/render/GBCFX.lua",
+      "removed_env": "POKEPORT_GBCFX",
+      "preset_env": "POKEPORT_SHADERFX",
+      "tier_fn": "Performance.detect",
+      "arm_linux_tier": "low",
+      "tier_caps_table": "Performance.CAPS",
+      "bridge_lib": "liblibrashader_bridge.so"
+    },
     "_legacy_mod_ids_comment": [
       "Mod ids this pak used to install and must now remove on sight. A pak update MERGES over",
       "the old install rather than replacing it, so a card coming from v0.3.0 keeps",
@@ -230,7 +308,8 @@
       "red": "ea9bcae617fdf159b045185467ae58b2e4a48b9a",
       "blue": "d7037c83e1ae5b39bde3c30787637ba1d4c48ce2",
       "yellow": "cc7d03262ebfaf2f06772c1a480c7d9d5f4a38e1",
-      "gold": "d8b8a3600a465308c9953dfa04f0081c05bdcb94"
+      "gold": "d8b8a3600a465308c9953dfa04f0081c05bdcb94",
+      "silver": "49b163f7e57702bc939d642a18f591de55d92dae"
     },
     "_rom_sha256_comment": [
       "What launch.sh actually matches on. These devices ship sha256sum and md5sum",
@@ -246,13 +325,24 @@
       "GOLD IS 2 MiB, not 1. launch.sh filters candidates by size before hashing, and",
       "a 1 MiB-only filter skipped every Gold dump before its hash was computed --",
       "reporting nothing wrong. The engine accepts both sizes",
-      "(RomImporter.isAcceptedRomSize); the filter must accept both too."
+      "(RomImporter.isAcceptedRomSize); the filter must accept both too.",
+      "",
+      "SILVER was added in v0.4.3, measured the same way on a Brick, 2026-08-31: the owner's own",
+      "dump hashed to the SHA-1 GameVersion.lua declares for silver, so the SHA-256 taken from the",
+      "same file is the canonical one. The ROM was read to hash it and nothing was kept.",
+      "",
+      "CRYSTAL IS DELIBERATELY ABSENT. The engine declares it (with two revisions, 1.0 and 1.1) and",
+      "ships rom_manifest_crystal.json, but no Crystal dump has been available to hash. Only SHA-1",
+      "is published anywhere upstream, and SHA-256 cannot be derived from it. Do NOT add a guessed",
+      "or third-party value: a wrong hash makes the scan match nothing and log nothing, which is",
+      "exactly how Gold stayed invisible for two releases. Add it when a real dump can be hashed."
     ],
     "rom_sha256": {
       "red": "5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b",
       "blue": "2a951313c2640e8c2cb21f25d1db019ae6245d9c7121f754fa61afd7bee6452d",
       "yellow": "8cbaa499397e4f1a679c992ea9382a2dd7942ab398b48c19829c2d9529de47bf",
-      "gold": "fb0016d27b1e5374e1ec9fcad60e6628d8646103b5313ca683417f52b97e7e4e"
+      "gold": "fb0016d27b1e5374e1ec9fcad60e6628d8646103b5313ca683417f52b97e7e4e",
+      "silver": "72b190859a59623cbef6c49d601f8de52c1d2331b4f08a8d2acc17274fc19a8c"
     },
     "_device_tools_comment": [
       "Commands confirmed ABSENT on a Trimui Brick and a Smart Pro S running NextUI",
@@ -271,20 +361,43 @@
       "taskset"
     ],
     "_rom_discovery_comment": [
-      "How the engine finds a dump on Linux, and therefore where launch.sh stages one.",
-      "RomImporter.lua gates its baseroms/ scan behind baseRomDiscovery, which is set to",
-      "`opts.launcher and Platform.isUWP()` -- Xbox only. On Linux it tries zenity/kdialog",
-      "(absent on these handhelds) and then falls back to findPendingRom(), which scans the",
-      "PhysFS root via getDirectoryItems(\"\") for a 1 MiB .gb/.gbc. LOVE mounts the save",
-      "directory into that root, so launch.sh stages dumps at the top of the save dir.",
-      "Staging them in a subfolder is invisible to the engine -- that cost a device trip.",
-      "verify.sh asserts both facts so an upstream change to either is caught here."
+      "How the engine takes a cartridge dump from the player on Linux, and therefore what launch.sh",
+      "does. This changed completely in 0.2.x and the pak changed with it.",
+      "",
+      "IT USED TO BE a scan: RomImporter.findPendingRom() read the PhysFS root via",
+      "getDirectoryItems(\"\"), LOVE mounts the save directory into that root, so launch.sh copied a",
+      "matching dump to the top of the save dir and the engine imported it unattended.",
+      "",
+      "IT IS NOW A FILE BROWSER. The Choose flow opens Kit.FileBrowser and RETURNS before the scan:",
+      "  RomImporter.lua:2744  if isHandheld then Kit.FileBrowser.open(); return end",
+      "  RomImporter.lua:2759  chooseRom()   -- zenity/kdialog, absent on these devices",
+      "  RomImporter.lua:2765  if Kit.FileBrowser then open(); return end   <-- the branch we hit",
+      "  RomImporter.lua:2782  findPendingRom(...)  -- only reached if Kit.FileBrowser is absent",
+      "Verified on a Brick, 2026-08-31: none of HANDHELD/PORTMASTER/POKEPORT_HANDHELD/TRIMUI/MUOS/",
+      "KNULLI are set for a pak, so it is the plain-Linux branch at 2765 that fires, not the handheld",
+      "one. The engine's two other findPendingRom call sites are Android-only -- one behind",
+      "mobileFileBridge, one inside focus(), which returns unless self.android.",
+      "",
+      "So staging imports nothing. launch.sh now REPORTS the path of each recognised dump instead,",
+      "because the browser opens at /mnt/SDCARD and the path is the only thing the player still needs.",
+      "It does not delete previously staged copies: a dump at the save root cannot be told apart from",
+      "one the player put there by hand.",
+      "",
+      "Upstream fixed a real bug in the same change -- findPendingRom gained a `wanted` argument, so",
+      "'choose Red, import Blue' (#1274) is gone. If the browser ever stops pre-empting the scan,",
+      "unattended import becomes possible again and this decision should be revisited; verify.sh",
+      "asserts both the browser and findPendingRom so either moving is caught here.",
+      "",
+      "Reported upstream as bryanthaboi/gen1recomp#2025, suggesting findPendingRom be tried before",
+      "the browser opens and the browser kept as the fallback. If that lands, unattended import",
+      "becomes possible again and the report-only scan above should be revisited."
     ],
     "rom_discovery": {
+      "browser": "Kit.FileBrowser",
       "root_scan_fn": "findPendingRom",
-      "root_scan_call": "getDirectoryItems(\"\")",
+      "root_scan_reachable_on_linux": false,
       "baseroms_is_uwp_only": true,
-      "stage_at": "<savedir>/  (PhysFS root)"
+      "pak_behaviour": "report the path; never copy, never delete"
     }
   },
   "ca_bundle": {
