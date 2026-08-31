@@ -15,11 +15,11 @@
   ],
   "gen1recomp": {
     "repo": "bryanthaboi/gen1recomp",
-    "tag": "v0.1.98",
-    "version": "0.1.98",
-    "asset": "gen1recomp-0.1.98-rg34xxsp-stockos64-mod.zip",
-    "sha256": "a3f3c464cc75d02a73a2af92c53f4edc6def5640c0f9e099d2b19ddf41fd3c82",
-    "size": 8124476
+    "tag": "v0.2.43",
+    "version": "0.2.43",
+    "asset": "gen1recomp-0.2.43-rg34xxsp-stockos64-mod.zip",
+    "sha256": "814d29b1ad48579d16e58f3c2f918c9866db4f91504c11bf9f96fe58801de5b4",
+    "size": 14202846
   },
   "game_payload": {
     "_comment": [
@@ -41,9 +41,9 @@
       "it is the exact LOVE build upstream tested this game version against, and it is",
       "hash-pinned per file. Nothing here is compiled either way; the game is Lua."
     ],
-    "asset": "gen1recomp-0.1.98.love",
-    "sha256": "a28b914f5265a52132cb743ba632e1c7bb81f5eb989829816c571adde798db55",
-    "size": 5947274
+    "asset": "gen1recomp-0.2.43.love",
+    "sha256": "2929a98fb53931e342151517d956356d7ab4785d7ce7e0a89b9d58fddc84c94f",
+    "size": 8860799
   },
   "love_runtime": {
     "version": "11.5",
@@ -55,7 +55,35 @@
       "libs.aarch64/libluajit-5.1.so.2": "b4b29431056a11fb2309d1327ac941193ad8113ca7bf48584af9965846fabc65",
       "libs.aarch64/libmodplug.so.1": "026b2287c9d68f920cf541b68b94f1a691168e4bbf301a8793f4114808aa8f95",
       "libs.aarch64/libogg.so.0": "66015f344b53895affd3ff153f402097ebaa2add33246bea2d7fca27b682e07a"
-    }
+    },
+    "_strip_comment": [
+      "Libraries upstream ships in libs.aarch64/ that this pak deliberately does NOT install.",
+      "",
+      "liblibrashader_bridge.so (8.4 MB) arrived with src/render/ShaderFX.lua between 0.2.24",
+      "and 0.2.39. It is ffi.load()ed for exactly one job: translating libretro .slangp presets",
+      "into the cached Lua artifact ShaderFX runs. On this hardware that job never happens.",
+      "Performance.detect() returns 'low' for arm/arm64 on Linux and CAPS.low.shaderfx is false,",
+      "a hard off checked before any preset is looked at -- see contracts.shaderfx. The pak also",
+      "ships no .slangp and a fresh save dir has none, so there is nothing to translate even if",
+      "a player forces the tier to HIGH from OPTIONS.",
+      "",
+      "That made it 8.4 MB of the 15 MB the pak grew by at 0.2.43 (22 MB -> 37 MB), for a code",
+      "path the engine refuses to enter, on 1 GB devices this pak already documents as memory-",
+      "and GPU-bound. Stripped, the pak is ~29 MB.",
+      "",
+      "It fails GRACEFULLY if a player does reach for it: ShaderFX's ensureLib() walks its",
+      "candidate paths under pcall and records libError, so a missing bridge is a logged",
+      "conversion failure and no shader, not a crash. A player who wants presets can put their",
+      "own build at any candidate path, or point LIBRASHADER_BRIDGE_DLL at one.",
+      "",
+      "build.sh copies the whole of libs.aarch64/ and then removes these by name, so a library",
+      "nobody has seen before still reaches the staged tree and trips verify.sh's exact-name",
+      "check. Dropping it at copy time would hide the next new dependency."
+    ],
+    "_strip_reason": "unreachable on these devices; see _strip_comment",
+    "strip": [
+      "libs.aarch64/liblibrashader_bridge.so"
+    ]
   },
   "mpg123": {
     "_comment": [
@@ -172,7 +200,20 @@
     "sha256": "4c824d47b566b88f9ac57b32ec40cb72cf74db95e2410727764b3ea93546fd72",
     "size": 557084,
     "archive_root": "DRAMALESS_SHAPE-2.0.1",
-    "install_path": "game/mods/DRAMALESS_SHAPE"
+    "install_path": "game/mods/DRAMALESS_SHAPE",
+    "_patches_comment": [
+      "Patches applied to the mod at build time, in order. Each carries its full reasoning in",
+      "its own header; this list only says which are live.",
+      "",
+      "These are not enhancements and must not become a place to put them. Each one exists",
+      "because an upstream change broke the mod, is reported to the mod's author, and is to be",
+      "DELETED when a mod release carries the fix -- not carried forward. build.sh fails closed",
+      "if one stops applying, and verify.sh asserts the effect of each on the staged tree as",
+      "well as the condition that makes it obsolete."
+    ],
+    "patches": [
+      "patches/DRAMALESS_SHAPE-gbcfx.patch"
+    ]
   },
   "contracts": {
     "_comment": [
@@ -181,7 +222,41 @@
     ],
     "love_version": "11.5",
     "love_identity": "pokemon-love2d",
-    "gbcfx_env": "POKEPORT_GBCFX",
+    "_shaderfx_comment": [
+      "What replaced POKEPORT_GBCFX, and why launch.sh now exports nothing in its place.",
+      "",
+      "Through 0.2.20 the engine had src/render/GBCFX.lua: a fixed shader 'level ladder' that",
+      "compiled its present pass on this GPU class and then displayed a BLACK FRAME (upstream",
+      "issue #136), so launch.sh pinned it off with POKEPORT_GBCFX=0. Between 0.2.20 and 0.2.24",
+      "upstream DELETED that module, replacing it with src/render/ShaderFX.lua -- runtime",
+      "libretro slang-shader presets, backed by liblibrashader_bridge.so.",
+      "",
+      "POKEPORT_SHADERFX is not a replacement switch. It names a PRESET to auto-activate, and",
+      "unset already means 'no shader', so there is nothing for launch.sh to set. The export was",
+      "deleted rather than translated: a dead env var that reads like a safety guard is worse",
+      "than none, because the next person to read launch.sh would trust it.",
+      "",
+      "What actually keeps the black frame from returning is the performance tier.",
+      "Performance.detect() returns 'low' for arm/arm64 on Linux -- every device this pak",
+      "targets -- and CAPS.low.shaderfx is false: a hard off, read before any preset is",
+      "considered. The pak ships no .slangp and a fresh save dir has none, so the tier is",
+      "belt and braces rather than the only thing standing in the way.",
+      "",
+      "verify.sh asserts the tier rule and the cap against the payload, so an upstream change to",
+      "either fails the build here instead of showing up as a black screen on a device.",
+      "The old module is asserted ABSENT too: if it returns, patches/DRAMALESS_SHAPE-gbcfx.patch",
+      "is obsolete and must be deleted rather than carried."
+    ],
+    "shaderfx": {
+      "module": "src/render/ShaderFX.lua",
+      "removed_module": "src/render/GBCFX.lua",
+      "removed_env": "POKEPORT_GBCFX",
+      "preset_env": "POKEPORT_SHADERFX",
+      "tier_fn": "Performance.detect",
+      "arm_linux_tier": "low",
+      "tier_caps_table": "Performance.CAPS",
+      "bridge_lib": "liblibrashader_bridge.so"
+    },
     "_legacy_mod_ids_comment": [
       "Mod ids this pak used to install and must now remove on sight. A pak update MERGES over",
       "the old install rather than replacing it, so a card coming from v0.3.0 keeps",

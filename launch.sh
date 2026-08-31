@@ -477,12 +477,12 @@ fi
 
 [ -f "$GAME/main.lua" ] || { echo "FATAL: $GAME/main.lua is missing."; exit 1; }
 
-# GBC FX compiles its present pass on this GPU class and then displays a black
-# frame (upstream issue #136). Upstream's own RG34XXSP port disables it for the
-# same reason. love.system.getOS() returns "Linux" here, so upstream's Android
-# gate does not fire on its own. Setting this to 0 hides the OPTIONS row, pins
-# the level off, and heals a level persisted from another machine.
-export POKEPORT_GBCFX="${POKEPORT_GBCFX:-0}"
+# No shader env var is set here on purpose. POKEPORT_GBCFX used to pin GBC FX
+# off, because it compiled its present pass on this GPU class and then showed a
+# black frame (upstream issue #136); upstream deleted that module after 0.2.20.
+# Its replacement, ShaderFX, is held off by the performance tier instead --
+# arm64 Linux resolves to "low", whose caps set shaderfx false. See
+# contracts.shaderfx in upstream.lock; verify.sh asserts it.
 
 # --- one-time ROM import ---------------------------------------------------
 # Gen1Recomp needs a cartridge dump exactly once: it verifies the ROM, decodes

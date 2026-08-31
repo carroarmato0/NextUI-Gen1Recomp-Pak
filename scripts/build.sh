@@ -45,7 +45,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-for t in curl unzip zip jq sha256sum readelf ar tar; do
+for t in curl unzip zip jq sha256sum readelf ar tar patch; do
   command -v "$t" >/dev/null || fail "$t is required"
 done
 
@@ -223,6 +223,18 @@ cp "$SRC/bin/love.aarch64" "$PAK/bin/love.aarch64"
 chmod +x "$PAK/bin/love.aarch64"
 cp "$SRC"/libs.aarch64/*.so* "$PAK/libs.aarch64/"
 
+# Everything upstream ships is copied first and the unwanted removed by name,
+# rather than copying an allowlist: a library we have never seen must survive
+# into the staged tree so verify.sh's exact-name check can fail on it. Dropping
+# it here instead would make a new upstream dependency invisible.
+while read -r rel; do
+  [ -n "$rel" ] || continue
+  [ -f "$PAK/$rel" ] || fail "upstream.lock says to strip $rel, but the port zip has no such file.
+Upstream dropped it on its own -- remove it from love_runtime.strip in upstream.lock."
+  rm -f "$PAK/$rel"
+  say "stripped $rel ($(jqlock '.love_runtime._strip_reason'))"
+done < <(jq -r '.love_runtime.strip[]?' "$LOCK")
+
 say "verifying the bundled LOVE runtime against upstream.lock"
 while IFS=$'\t' read -r rel want; do
   [ -f "$PAK/$rel" ] || fail "runtime file missing from the port zip: $rel"
@@ -318,6 +330,21 @@ $found"
     [ -f "$MOD_DIR/$f" ] || fail "voxel mod is missing $f -- refusing to build"
   done
   cp "$MOD_DIR/LICENSE" "$PAK/licenses/LICENSE.$(jqlock '.voxel_mod.name').txt"
+
+  # Patches carried against the mod, each with its reasoning in the file header.
+  # These exist only because an upstream removal broke a mod whose author has not
+  # shipped since; every one is reported upstream and must be dropped, not
+  # carried, once a release fixes it. Fails closed: a patch that no longer
+  # applies means the mod moved and a human has to look.
+  while read -r rel; do
+    [ -n "$rel" ] || continue
+    [ -f "$ROOT/$rel" ] || fail "upstream.lock pins patch $rel, which is not in this tree"
+    patch -p1 -s --no-backup-if-mismatch -d "$MOD_DIR" < "$ROOT/$rel" \
+      || fail "patch $rel did not apply to $(jqlock '.voxel_mod.name') $(jqlock '.voxel_mod.version').
+The mod changed underneath it. Re-cut the patch, or drop it if upstream fixed the cause
+(see the header of $rel)."
+    say "applied $(basename "$rel")"
+  done < <(jq -r '.voxel_mod.patches[]?' "$LOCK")
 else
   say "skipping voxel mod (--no-voxel)"
 fi

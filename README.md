@@ -28,8 +28,8 @@ Credit for the game itself belongs entirely upstream. This repository is packagi
 ## Requirements
 
 - **NextUI** on a TrimUI device — `tg5040` (Brick, Smart Pro, Brick Pro) or `tg5050` (Smart Pro S)
-- **Your own US Red, Blue, Yellow or Gold cartridge dump.** Only the canonical US ROMs are accepted — the three 1 MiB Gen 1 carts and the 2 MiB Gold cart; the engine verifies by SHA-1 and refuses anything else
-- ~22 MB of card space, or ~20 MB if you build without the 3D mod
+- **Your own US Red, Blue, Yellow or Gold cartridge dump.** Only the canonical US ROMs are accepted — the three 1 MiB Gen 1 carts and the 2 MiB Gold cart; the engine verifies by SHA-1 and refuses anything else. Gen1Recomp 0.2.x has begun adding **Silver and Crystal**, but this pak does not import them yet — see [Silver and Crystal](#silver-and-crystal)
+- ~29 MB of card space, or ~27 MB if you build without the 3D mod
 - For the 3D voxel mod: [Swap.pak](https://github.com/carroarmato0/NextUI-Swap-Pak). See [3D voxel mod](#3d-voxel-mod)
 
 ## Install
@@ -97,6 +97,14 @@ Other regions, revisions and ROM hacks are not supported by the engine.
 If you have several dumps, *Choose ROM* will often import a **different** edition from the one you picked — select Red and it may decode Blue. That is expected, and nothing is mislabelled.
 
 The pak stages every dump it recognises at once, and on Linux the engine has no file picker to offer, so it falls back to importing the first cartridge in the folder that has not been imported yet (`findPendingRom`). It identifies that file by its SHA-1, so Blue's data always becomes Blue — the version you *selected* is simply not what the fallback consults. Keep launching and every version you own gets imported; the end state is correct, only the order is not yours to choose. Reported upstream.
+
+### Silver and Crystal
+
+Gen1Recomp 0.2.x has started adding **Pokémon Silver and Crystal** — the engine declares both, and ships their import manifests. **This pak does not import them yet**, and a Silver or Crystal dump on your card is simply ignored.
+
+The reason is mundane. These devices have no `sha1sum`, so the pak's ROM scan matches candidate dumps by **SHA-256** before copying them, while everything upstream publishes — and everything shipped in the payload — is SHA-1. There is no way to derive one from the other, and inventing a value would be worse than leaving it out: the scan would match nothing and say nothing, which is exactly how the Gold gap went unnoticed for two releases. Adding each version needs its SHA-256 taken from a real cartridge dump and confirmed on hardware.
+
+Red, Blue, Yellow and Gold are unaffected.
 
 ## 3D voxel mod
 
@@ -303,6 +311,7 @@ Stated plainly, because these are structural rather than bugs, and knowing them 
 
 - **MENU does not quit the game.** NextUI does not intercept MENU for standalone applications, so it arrives as an ordinary button. Quit through Gen1Recomp's own launcher.
 - **Sleep does not work.** All power handling lives inside the NextUI frontend, which has exited while the game runs. Brightness and volume *do* keep working — a background daemon handles those.
+- **Shader presets are unavailable, and that is the engine's decision, not ours.** Gen1Recomp 0.2.x replaced its old GBC FX option with libretro slang-shader presets. `Performance.detect()` resolves ARM Linux handhelds to the `low` tier, whose caps set `shaderfx = false` — a hard off, checked before any preset is looked at. Because nothing on this hardware can reach that code path, the pak does not ship the 8.4 MB `liblibrashader_bridge.so` that only exists to translate presets; that keeps the download at ~29 MB rather than ~37 MB. If you force PERFORMANCE to HIGH and supply your own presets, preset conversion fails gracefully — a logged `ffi.load` failure and no shader, not a crash — and you can point `LIBRASHADER_BRIDGE_DLL` at your own build of the bridge.
 - **The pak changes CPU state while running.** It brings all cores online, raises cluster frequency ceilings, and on big.LITTLE hardware pins LÖVE to the big cluster. Governor, ceilings, floors and which cores are online are all recorded at launch and put back on exit. The online mask is the one that matters: NextUI offlines five of the Smart Pro S's eight cores at boot and never repeats it, so a core left up by this pak would stay up for the rest of your session. Create `no-cpu-tuning` in the state dir to disable.
 
 ### The voxel mod
@@ -313,6 +322,7 @@ Stated plainly, because these are structural rather than bugs, and knowing them 
 - **It needs swap, and the new mod did not change that.** Measured on v0.4.0: 726 MB peak on a Smart Pro S with active paging, against the old mod's 722 MB. Without [Swap.pak](https://github.com/carroarmato0/NextUI-Swap-Pak) the session is OOM-killed. The Brick is easier on memory (~440 MB, 3 MB of swap touched) but is GPU-bound instead. The 2D game runs comfortably on both.
 - **No Stadium models, 3D battle modes, VR or voxel characters.** Dramaless 2.0 dropped all of them; see [What you gain and lose](#what-you-gain-and-lose).
 - **The mod releases faster than this pak does.** Expect the in-game update check to offer a newer version than the bundled one.
+- **The bundled copy carries a fix that the released mod does not.** Gen1Recomp deleted `src/render/GBCFX.lua` after 0.2.20, and Dramaless still requires it in two places — one of them looks guarded but is not, because the `pcall` wraps the call rather than the `require`. Unpatched, that throws inside the mod's OPTIONS hook, the engine logs-and-skips the whole hook, and the mod's rows vanish from OPTIONS with nothing on screen to say why — which, given the hotkeys are keyboard-only, leaves no way at all to reach the 3D toggle on a handheld. The pak patches both call sites at build time (`patches/DRAMALESS_SHAPE-gbcfx.patch`). Reported as [DRAMALESS_SHAPE#53](https://github.com/artyrambles/DRAMALESS_SHAPE/issues/53); the patch is deleted, not carried, once a mod release fixes it. **If you install Dramaless yourself from the in-game mod manager, you get the unpatched version** and the OPTIONS rows will be missing.
 
 ### Measurement
 
@@ -379,7 +389,7 @@ There is genuinely nothing to compile: Gen1Recomp is LÖVE 11.5 / LuaJIT, so the
 
 ```sh
 scripts/build.sh                 # fetch + stage into build/Gen1Recomp.pak/
-scripts/build.sh --no-voxel      # skip the voxel mod (~1.8 MB of the 22 MB pak)
+scripts/build.sh --no-voxel      # skip the voxel mod (~1.8 MB of the 29 MB pak)
 scripts/verify.sh                # static + contract checks
 test/test-launch.sh              # launch.sh behaviour against a fake SD card
 scripts/release.sh               # -> dist/Gen1Recomp.pak.zip and dist/Gen1Recomp.pakz
@@ -388,7 +398,7 @@ scripts/verify-device.sh         # the real functional test, on hardware
 scripts/profile-device.sh 60     # sample GPU/CPU/memory while playing
 ```
 
-Needs `curl`, `jq`, `zip`, `unzip`, `sha256sum`, `readelf`, `ar` and `tar` (the last two unpack the bundled `libmpg123` from its `.deb`).
+Needs `curl`, `jq`, `zip`, `unzip`, `sha256sum`, `readelf`, `ar`, `tar` and `patch` (`ar`/`tar` unpack the bundled `libmpg123` from its `.deb`; `patch` applies the fixes in `patches/`).
 
 `upstream.lock` pins every third-party artifact by SHA-256 and every assumption the launcher makes about upstream's payload. `verify.sh` re-checks all of it, so an upstream change that would break the pak fails the build with a name attached instead of producing a black screen on your device. A scheduled workflow watches upstream for new releases and prepares a **draft** release plus a device checklist — it never publishes, because CI cannot test any of what matters.
 

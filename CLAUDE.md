@@ -162,6 +162,49 @@ the pak directory — a pak update would otherwise destroy them.
   search-path order, and fails if `liblove` ever stops needing it. Do **not** bundle SDL2, freetype, openal or
   the rest of `liblove`'s dependencies — those come from the firmware, and shadowing the vendor SDL2
   breaks GLES.
+- **`POKEPORT_GBCFX` is gone, and the thing that now holds the shader off is the performance
+  tier.** Upstream deleted `src/render/GBCFX.lua` between 0.2.20 and 0.2.24 and replaced it with
+  `src/render/ShaderFX.lua` (libretro slang-shader presets). `POKEPORT_SHADERFX` is **not** a
+  replacement switch — it names a preset to auto-activate, so unset already means "no shader" and
+  there is nothing to set. The export was **deleted** rather than translated: a dead env var that
+  reads like a safety guard is worse than none. What actually keeps upstream issue #136's black
+  frame away is `Performance.detect()` returning `low` for `isArm and os == "Linux"` — every device
+  this pak targets — and `CAPS.low.shaderfx = false`, a hard off read before any preset is
+  considered. `verify.sh` asserts the tier rule, the cap, that the old module stays absent, that no
+  `.slangp` ships, and that `launch.sh` never re-adds the export.
+- **The bundled voxel mod is patched at build time, and the patch must be deleted rather than
+  carried.** `DRAMALESS_SHAPE` 2.0.1 — and 2.0.3, the latest, which predates the removal — still
+  `require`s the deleted `src.render.GBCFX` in two places. `main.lua:293` *looks* guarded but is
+  not: the `pcall` wraps the **call**, and the `require` is an argument, so it is evaluated first
+  and throws. That line is the first statement of `pinEngineFx`, which is the first statement of the
+  `ui.options.rows` hook, and `src/mods/Hooks.lua` logs-and-skips a wrapper that throws — so the
+  mod's rows never reach OPTIONS. Since the mod's hotkeys are keyboard-only, that leaves **no way to
+  toggle 3D on a handheld**, with nothing on screen to explain it. Upstream refused to shim it
+  (`gen1recomp#1823`, closed by the author as "this is a mod issue"); reported to the mod author as
+  `DRAMALESS_SHAPE#53`. `patches/DRAMALESS_SHAPE-gbcfx.patch` fixes both sites with the shape
+  upstream itself used at `src/import/LauncherSettings.lua`. `verify.sh` asserts the effect on the
+  staged tree **and** that `src/render/GBCFX.lua` has not come back — if it does, drop the patch.
+  Note the patch must preserve CRLF: 2.0.1's `main.lua` is CRLF throughout and a LF rewrite diffs
+  the whole file.
+- **`libs.aarch64/` is checked by exact name, not by count, and that is deliberate.** The check used
+  to be "exactly 4", which is satisfiable by editing a number — and that is precisely the wrong
+  reflex when upstream adds a library. The pinned `love_runtime.files` entries now *are* the
+  allowlist, so an unknown library fails by name. That is how `liblibrashader_bridge.so` was caught.
+  It is **stripped** (`love_runtime.strip`), because at 8.4 MB it exists only to translate `.slangp`
+  presets and the tier rule above means this hardware never enters that path; it took the pak from
+  22 MB to 37 MB and stripping puts it at 29 MB. `build.sh` copies **all** of `libs.aarch64/` and
+  then removes by name — never an allowlist copy, or the next new dependency becomes invisible.
+- **Silver and Crystal exist upstream but this pak cannot import them yet, and the blocker is hash
+  algebra.** `GameVersion.lua` declares six versions as of 0.2.43 (Crystal with two revisions), and
+  the payload ships `rom_manifest_silver.json` and `rom_manifest_crystal.json`. `launch.sh`'s
+  `VERSIONS` is still `red blue yellow gold`. The scan matches on **SHA-256** because the device has
+  no `sha1sum`, and **everything upstream provides is SHA-1** — `GameVersion.lua` and every
+  `tools/rom_manifest_*.json` carry `romSha1` and nothing else. One cannot be derived from the
+  other, so adding a version needs its SHA-256 taken from a real dump. **Do not guess one to close
+  the gap**: a wrong value makes the scan match nothing and log nothing, which is exactly how Gold
+  stayed hidden for two releases. (Whether a third-party DAT publishes SHA-256 for these carts is
+  unchecked — and a hash taken from one would still want confirming against a real dump before it
+  is trusted, since the failure is silent.)
 - **The device has no CA store.** `/etc/ssl/certs`, `/etc/ssl/cert.pem` and `/etc/pki` are all
   absent, and the engine does HTTPS by shelling out to `curl` (`src/net/Fetch.lua`). Without a
   bundle every request fails with curl exit 60, surfacing in the mod manager as a failed update

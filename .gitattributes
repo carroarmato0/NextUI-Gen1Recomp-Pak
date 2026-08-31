@@ -1,0 +1,7 @@
+# The voxel-mod patch must keep its CRLF line endings byte for byte.
+# DRAMALESS_SHAPE 2.0.1's main.lua is CRLF throughout, so the patch's context and
+# added lines are CRLF too. With core.autocrlf=input -- the default on Linux
+# clones -- git would normalise them to LF on commit, and the patch would then
+# fail to match on a fresh clone. build.sh fails closed when that happens, so it
+# would be a broken CI job rather than a bad pak, but it is still a trap.
+*.patch -text

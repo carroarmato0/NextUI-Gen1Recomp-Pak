@@ -122,9 +122,28 @@ fi
 [ -x "$PAK/bin/love.aarch64" ]
 check $? "bin/love.aarch64 is executable"
 
-libcount=$(find "$PAK/libs.aarch64" -maxdepth 1 -name '*.so*' | wc -l)
-[ "$libcount" -eq 4 ]
-check $? "libs.aarch64/ holds exactly the 4 expected libraries (found $libcount)"
+# An exact name set, not a count. The pinned files ARE the allowlist, so this
+# cannot be satisfied by bumping a number: an unknown library upstream starts
+# shipping fails here by name, which is how liblibrashader_bridge.so was caught.
+# Anything deliberately not installed is listed in love_runtime.strip and so is
+# absent from love_runtime.files -- see the strip note in upstream.lock.
+want_libs=$(jq -r '.love_runtime.files | keys[]
+                   | select(startswith("libs.aarch64/"))
+                   | sub("^libs\\.aarch64/"; "")' "$LOCK" | sort | tr '\n' ' ')
+got_libs=$(find "$PAK/libs.aarch64" -maxdepth 1 -name '*.so*' -printf '%f\n' | sort | tr '\n' ' ')
+libs_msg="libs.aarch64/ holds exactly the pinned LOVE runtime libraries"
+[ "$got_libs" = "$want_libs" ] || libs_msg="$libs_msg -- want [$want_libs] got [$got_libs]"
+[ "$got_libs" = "$want_libs" ]
+check $? "$libs_msg"
+
+# The strip actually happened. Covered by the name set above, but called out so
+# a build that silently regains 8.4 MB is named rather than inferred.
+strip_ok=0
+while read -r rel; do
+    [ -n "$rel" ] || continue
+    [ ! -e "$PAK/$rel" ] || { bad "stripped library is still staged: $rel"; strip_ok=1; }
+done < <(jq -r '.love_runtime.strip[]?' "$LOCK")
+check $strip_ok "libraries listed in love_runtime.strip are not installed"
 
 rt_ok=0
 while IFS=$'\t' read -r rel want; do
@@ -273,9 +292,43 @@ check $? "launch.sh stages ROMs at the save-dir root, not in a subfolder"
 
 code_only | matches 'baseroms' && bad "launch.sh still references baseroms/, which Linux never reads" || ok "launch.sh does not use the Xbox-only baseroms/ path"
 
-want_gbcfx=$(jqlock '.contracts.gbcfx_env')
-grep -rq "$want_gbcfx" "$PAK/game/src/" 2>/dev/null
-check $? "$want_gbcfx is still honoured by the engine"
+# ShaderFX, and what holds it off. This replaced the old POKEPORT_GBCFX check
+# when upstream deleted src/render/GBCFX.lua after 0.2.20; launch.sh now sets no
+# shader env var at all, so the thing worth asserting is the tier rule that keeps
+# the pass from running. See contracts.shaderfx in upstream.lock.
+FX_MODULE="$PAK/game/$(jqlock '.contracts.shaderfx.module')"
+PERF="$PAK/game/src/core/Performance.lua"
+
+[ -f "$FX_MODULE" ]
+check $? "$(jqlock '.contracts.shaderfx.module') is present (it replaced GBCFX)"
+
+# The old module must stay gone. If upstream restores it, the voxel-mod patch
+# below is obsolete and must be deleted rather than carried.
+gone="$PAK/game/$(jqlock '.contracts.shaderfx.removed_module')"
+[ ! -f "$gone" ]
+check $? "$(jqlock '.contracts.shaderfx.removed_module') is still absent (else drop the voxel patch)"
+
+# arm/arm64 on Linux -- every device this pak targets -- must still resolve to
+# the tier we rely on.
+wanted_tier=$(jqlock '.contracts.shaderfx.arm_linux_tier')
+grep -qE 'isArm[[:space:]]+and[[:space:]]+os[[:space:]]*==[[:space:]]*"Linux"' "$PERF" 2>/dev/null \
+    && grep -A2 -E 'isArm[[:space:]]+and[[:space:]]+os[[:space:]]*==[[:space:]]*"Linux"' "$PERF" 2>/dev/null \
+       | matches "return \"$wanted_tier\""
+check $? "Performance.detect still returns '$wanted_tier' for arm Linux"
+
+# ...and that tier's cap must still be a hard off, not a resolution multiplier.
+grep -E "^[[:space:]]*${wanted_tier}[[:space:]]*=" "$PERF" 2>/dev/null \
+    | matches 'shaderfx[[:space:]]*=[[:space:]]*false'
+check $? "Performance.CAPS.$wanted_tier still sets shaderfx = false (no shader pass on this hardware)"
+
+# Nothing for a preset to auto-activate: the pak must ship no slang preset.
+[ -z "$(find "$PAK/game" -name '*.slangp' -print -quit 2>/dev/null)" ]
+check $? "no .slangp preset is shipped (nothing for POKEPORT_SHADERFX to pick up)"
+
+# launch.sh must not resurrect the dead switch.
+code_only | matches "$(jqlock '.contracts.shaderfx.removed_env')" \
+    && bad "launch.sh sets $(jqlock '.contracts.shaderfx.removed_env'), which the engine no longer reads" \
+    || ok "launch.sh does not set the removed $(jqlock '.contracts.shaderfx.removed_env')"
 
 sha_ok=0
 for v in $(jq -r '.contracts.rom_sha1|keys_unsorted[]' "$LOCK"); do
@@ -358,6 +411,31 @@ if [ -d "$MOD_DIR" ]; then
 
     [ -f "$PAK/licenses/LICENSE.$MOD_NAME.txt" ]
     check $? "voxel mod licence is copied into licenses/"
+
+    # Carried patches (voxel_mod.patches in upstream.lock). Assert the EFFECT on
+    # the staged tree, not that build.sh ran -- a patch that applied to the wrong
+    # place still applies cleanly.
+    patch_ok=0
+    while IFS= read -r rel; do
+        [ -n "$rel" ] || continue
+        [ -f "$ROOT/$rel" ] || { bad "upstream.lock pins patch $rel, which is missing"; patch_ok=1; }
+    done < <(jq -r '.voxel_mod.patches[]?' "$LOCK")
+    check $patch_ok "every patch upstream.lock pins is present in the tree"
+
+    # The GBCFX patch: no unguarded require of the deleted module may survive.
+    # Bare `require("src.render.GBCFX")` throws -- and at pinEngineFx, at the top
+    # of the ui.options.rows hook, Hooks.lua logs-and-skips the whole wrapper, so
+    # the mod's OPTIONS rows vanish. On a handheld those rows are the only way to
+    # reach the 3D toggle (the mod's hotkeys are keyboard-only).
+    gbcfx_ok=0
+    if grep -rqE 'require\("src\.render\.GBCFX"\)[[:space:]]*\.' "$MOD_DIR" 2>/dev/null; then
+        bad "voxel mod still has a bare require(\"src.render.GBCFX\").<field> -- the patch did not take"
+        gbcfx_ok=1
+    fi
+    check $gbcfx_ok "voxel mod makes no unguarded require of the removed GBCFX module"
+
+    grep -rq 'pcall(require, "src.render.GBCFX")' "$MOD_DIR" 2>/dev/null
+    check $? "voxel mod's GBCFX requires are pcall-guarded (patch applied)"
 
     # Manifest against the lock and against the loader's own gates. A mod the
     # loader refuses is indistinguishable on device from one that crashed.
