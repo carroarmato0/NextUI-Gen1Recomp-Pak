@@ -72,6 +72,21 @@ function love.load()
     log("joystick: NONE DETECTED -- input will not work in the game either")
   end
 
+  -- WHICH mapping actually won, which is the only thing that settles whether
+  -- launch.sh's SDL_GAMECONTROLLERCONFIG does anything. The GUID a device
+  -- reports is not the GUID a mapping has to carry: SDL 2.0.18+ stores a CRC16
+  -- of the device name in bytes 2-3, and falls back to matching with that field
+  -- zeroed -- so a mapping whose GUID looks different can still be the live one.
+  -- Comparing the two GUIDs alone cannot tell you; comparing the mapping can.
+  for i, j in ipairs(joys) do
+    local ok, mapping = pcall(love.joystick.getGamepadMappingString, j:getGUID())
+    if ok and mapping then
+      log("mapping %d: %s", i, mapping)
+    else
+      log("mapping %d: NONE -- SDL has no gamepad mapping for this GUID", i)
+    end
+  end
+
   -- A sustained sine tone is the cheapest reliable way to hear XRUN underruns:
   -- they come through as clicks or crackle in a tone that should be featureless.
   local okAudio, err = pcall(function()

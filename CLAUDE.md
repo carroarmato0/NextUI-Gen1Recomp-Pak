@@ -278,10 +278,18 @@ the pak directory — a pak update would otherwise destroy them.
 - **Do not read `scaling_cur_freq` as CPU load.** schedutil parks the clock at the ceiling
   regardless of utilisation; profile-device.sh once concluded "CPU-bound" from it on a session
   that was plainly GPU-bound. Difference `/proc/stat` jiffies instead.
-- **The controller GUID string in `launch.sh` is still unconfirmed**, even though the *behaviour* it
-  is meant to produce is verified — physical A confirms on a Brick. Those are different claims: the
-  default mapping could be producing that on its own. Only `test/smoke/` prints the joystick's real
-  name and GUID, and only comparing them settles whether our override does anything.
+- **The controller mapping IS ours, confirmed 2026-08-31 — and comparing GUIDs is the wrong test.**
+  This was an open question for weeks. Settled by making `test/smoke/` print
+  `love.joystick.getGamepadMappingString()`: the live mapping came back as our `TRIMUI Player1`
+  with `a:b1,b:b0`, so the override is applied and it is what makes physical A confirm.
+  The GUIDs do **not** match and that is fine. The Brick reports
+  `0300a3845e0400008e02000014010000`; we ship `030000005e0400008e02000014010000`. SDL 2.0.18+ puts a
+  CRC16 of the device name in bytes 2-3 of the GUID and falls back to matching with that field
+  zeroed, so our zero-CRC string matches and SDL re-stamps the returned mapping with the device's
+  real CRC. **Do not "fix" the GUID in `launch.sh` to the device's value** — the earlier strict
+  equality check in `verify-device.sh` did exactly that as a `FAIL`, and it was a false alarm. The
+  check now compares the mapping body instead, which is the thing that actually decides A vs B.
+  Device joystick name is `"Xbox 360 Controller"`, 15 buttons, 6 axes.
 - **Know what the CPU-tuning block actually does per platform before touching it.** NextUI runs
   `governor.sh performance` immediately before launching any pak (`skeleton/SYSTEM/<plat>/paks/
   MinUI.pak/launch.sh:189`), which sets `performance` at the true hardware max.
@@ -314,6 +322,20 @@ the pak directory — a pak update would otherwise destroy them.
   `exec`. Both carry an inline `# shellcheck disable=SC2329`. The directive must be the **last**
   comment line before the function, or the following comment lines are parsed as part of it (SC1072/
   SC1073). Do not put this in `.shellcheckrc` — that would hide genuinely dead functions in `scripts/`.
+- **`verify-device.sh` grades `$LOG`, so it must guarantee the log is FRESH.** It used to print an
+  instruction and wait for Enter. An Enter pressed before launching left every group grading a log
+  from an earlier session: a run where the device was never touched reported *8 passed, 0 failed*
+  against a thirteen-minute-old log, twice. It now clears the log and **blocks** — `await_launch`
+  polls for the log reappearing (launch.sh started), then for `love.aarch64` going away (it
+  finished). `wait_for_exit` already existed for this and had never been called. Also:
+  `logtext()` must `tr -d '\r'`, because adb hands back CRLF and any exact string comparison fails
+  on the stray CR while the regex checks quietly tolerate it — that produced a false mapping
+  mismatch where the two strings were otherwise byte-identical.
+- **The smoke test runs fine headlessly over ADB, which is more than the game manages.** Driven with
+  `start-stop-daemon` while `verify-device.sh --smoke` waits, it reports renderer, window size,
+  audio, joystick and mapping without anyone touching the device. Confirmed on a Brick:
+  `OpenGL ES 3.2 ... Imagination Technologies PowerVR Rogue GE8300`, 1024x768, `audio: ok`. The
+  *game* still needs a real launch — it stays on the launcher headlessly (RSS ~44 MB, no mod load).
 - **`MALI_CreateWindow` in the log does not mean Mali.** The vendor SDL2 prints it on tg5040 too,
   where the GPU is PowerVR: device-tree `compatible` is `img,gpu`, `/sys/kernel/debug/pvr/` exists,
   and the same library exports `PVR_Vulkan_*`. Do not "correct" the platform table from that line.

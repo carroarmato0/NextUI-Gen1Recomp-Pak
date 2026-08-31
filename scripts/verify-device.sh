@@ -48,7 +48,11 @@ matches() { [ "$(grep -cE "$1" 2>/dev/null || true)" -gt 0 ]; }
 command -v adb >/dev/null || die "adb is required"
 adb get-state >/dev/null 2>&1 || die "no device over adb"
 
-logtext() { adb shell "cat '$LOG' 2>/dev/null"; }
+# tr -d '\r' is load-bearing: adb shell hands back CRLF, and while the regex
+# checks tolerate a stray CR, any exact string comparison silently fails on it.
+# That cost a false "a different gamepad mapping won" on a Brick where the two
+# strings were byte-identical apart from the CR.
+logtext() { adb shell "cat '$LOG' 2>/dev/null" | tr -d '\r'; }
 
 # clear_log -- remove the device log immediately before a prompt.
 #
@@ -76,10 +80,12 @@ cpu_state() {
 CPU_BEFORE="$(cpu_state)"
 
 wait_for_exit() {
-    # The frontend relaunches itself when the game exits, so poll for nextui.elf
-    # coming back rather than guessing with a fixed sleep.
+    # Poll for love.aarch64 going away rather than guessing with a fixed sleep.
+    # NOT "press MENU": nothing on these devices intercepts MENU, so it does not
+    # quit the game -- it arrives as an ordinary joystick button. Quitting is done
+    # from Gen1Recomp's own launcher.
     local waited=0 limit="${1:-180}"
-    printf '  waiting for the game to exit (press MENU/quit on the device)'
+    printf '  running; quit from the game'"'"'s own launcher when done'
     while [ "$waited" -lt "$limit" ]; do
         if adb shell 'pidof love.aarch64' 2>/dev/null | grep -qE '[0-9]'; then
             printf '.'; sleep 3; waited=$((waited+3))
@@ -88,6 +94,35 @@ wait_for_exit() {
         fi
     done
     printf ' timed out\n'; return 1
+}
+
+# await_launch <what> <start_limit> <exit_limit>
+#
+# Block until the pak has actually run and exited, instead of asking for Enter
+# and trusting the sequencing. Every group below grades $LOG, and launch.sh only
+# rewrites that file when it runs -- so an Enter pressed before launching had the
+# checks silently grading a log from an earlier session. That produced "8 passed,
+# 0 failed" against a thirteen-minute-old log on a Brick, twice.
+#
+# Phase 1 waits for the log to reappear, which means launch.sh started. Phase 2
+# waits for love to go away, so the log is complete before anything reads it.
+# Ctrl-C is the way out; both phases are bounded so a device that never launches
+# fails rather than hanging the session.
+await_launch() {
+    local what="$1" start_limit="${2:-300}" exit_limit="${3:-600}" waited=0
+    clear_log
+    printf '  waiting for you to open it on the device (up to %ds)' "$start_limit"
+    while [ "$waited" -lt "$start_limit" ]; do
+        if adb shell "[ -f '$LOG' ] && echo seen" 2>/dev/null | grep -q seen; then
+            printf ' started\n'
+            wait_for_exit "$exit_limit" \
+                || warn "$what did not exit within ${exit_limit}s; reading the log as it stands"
+            return 0
+        fi
+        printf '.'; sleep 2; waited=$((waited+2))
+    done
+    printf ' timed out\n'
+    return 1
 }
 
 if [ "$DO_DEPLOY" = 1 ]; then
@@ -116,13 +151,16 @@ adb push "$SMOKE_LOVE" "$STATE/_smoke.love" >/dev/null 2>&1 \
 
 cat <<EOF
 
-  On the device: Tools > Gen1Recomp   (it runs the smoke test, not the game)
-  It draws a moving square and plays a tone for a few seconds, then quits.
+  Open Tools > Gen1Recomp on the device now. It runs the smoke test, not the
+  game: a moving square and a tone for a few seconds, then it quits by itself.
   Listen for a clean tone with no pop and no crackle.
 
+  This waits for the run and reads the log afterwards -- there is nothing to
+  press here. Ctrl-C to give up.
+
 EOF
-clear_log
-read -r -p "  Press Enter once the smoke test has run and exited... " _
+await_launch "the smoke test" 300 300 \
+    || bad "nothing was launched -- open Tools > Gen1Recomp on the device when asked"
 
 group "Smoke test"
 SMOKE="$(logtext)"
@@ -160,16 +198,28 @@ else
     # The GUID in launch.sh was taken from a third-party implementation and has
     # never been confirmed here. If it is wrong the mapping silently does nothing
     # and A/B are swapped, so this check matters more than it looks.
+    # Compare the MAPPING, not the GUID. Comparing GUIDs was a false alarm: SDL
+    # 2.0.18+ stores a CRC16 of the device name in bytes 2-3 of the GUID and
+    # falls back to matching with that field zeroed, so our zero-CRC
+    # 030000005e04... legitimately matches the device's 0300a3845e04... and the
+    # override IS applied. Measured on a Brick, 2026-08-31: the live mapping came
+    # back as our "TRIMUI Player1" with a:b1,b:b0, re-stamped with the device CRC.
+    # What matters is whether our mapping won, and only the mapping shows that.
     guid="$(printf '%s\n' "$SMOKE" | sed -n 's/.*joystick.*guid=\([0-9a-fA-F]*\).*/\1/p' | head -1)"
-    expected="$(sed -n 's/.*SDL_GAMECONTROLLERCONFIG="\([0-9a-f]*\),.*/\1/p' "$ROOT/launch.sh" | head -1)"
+    live="$(printf '%s\n' "$SMOKE" | sed -n 's/^mapping [0-9]*: //p' | head -1)"
+    ours="$(sed -n 's/.*SDL_GAMECONTROLLERCONFIG="\(.*\)"$/\1/p' "$ROOT/launch.sh" | head -1)"
+    # Everything after the GUID: the part we actually author.
+    live_body="${live#*,}"; ours_body="${ours#*,}"
     if [ -z "$guid" ]; then
         warn "no joystick reported -- check the controller is seen at all"
-    elif [ "$guid" = "$expected" ]; then
-        ok "controller GUID matches the mapping shipped in launch.sh ($guid)"
+    elif [ -z "$live" ]; then
+        warn "the smoke test reported no mapping line -- rebuild it (test/smoke/)"
+    elif [ "$live_body" = "$ours_body" ]; then
+        ok "launch.sh's controller mapping is the live one (${ours_body%%,*}, a:b1/b:b0)"
     else
-        bad "controller GUID is $guid but launch.sh ships $expected
-        -> update SDL_GAMECONTROLLERCONFIG in launch.sh to this GUID, or A and B
-           will be swapped and the mapping will silently do nothing"
+        bad "a different gamepad mapping won, so A/B may be swapped
+        live: $live
+        ours: $ours"
     fi
 
     printf '%s\n' "$SMOKE" | matches 'memory .*SwapTotal' \
@@ -188,12 +238,14 @@ fi
 # ------------------------------------------------------------------- the game
 cat <<EOF
 
-  Now launch the real thing: Tools > Gen1Recomp
-  Start a new game, walk around a little, save, then quit.
+  Now open Tools > Gen1Recomp again for the real thing.
+  Start a new game, walk around a little, save, then quit from its launcher.
+
+  This waits until the game exits before reading the log. Ctrl-C to give up.
 
 EOF
-clear_log
-read -r -p "  Press Enter once you have quit Gen1Recomp... " _
+await_launch "Gen1Recomp" 300 1800 \
+    || bad "nothing was launched -- open Tools > Gen1Recomp on the device when asked"
 
 group "Gen1Recomp"
 GLOG="$(logtext)"
