@@ -405,6 +405,79 @@ rm -rf "$SB"
 echo
 # --------------------------------------------------------------------------
 echo
+echo "an existing options.lua with no catalogue configured gets one, once"
+
+# The common case on a card that predates the seed, or whose options.lua the
+# engine wrote before this pak ever ran: the file exists, so the fresh-install
+# branch never fires, and modIndexes stays empty forever.
+mk_opts_empty_index() {
+    printf 'return {\n  musicVol = 7,\n  modIndexes = {},\n  modIndexCache = {},\n  safeMode = false,\n}\n' > "$1"
+}
+
+SB="$(make_sandbox)"
+O="$SB/SDCARD/$SAVE_REL/options.lua"
+mkdir -p "$SB/SDCARD/$SAVE_REL"; mk_opts_empty_index "$O"
+run_launch "$SB"
+grep -q 'gen1recomp-mod-index' "$O"
+check $? "adds the catalogue to an options.lua that had none"
+grep -q 'musicVol = 7' "$O"
+check $? "keeps the settings that were already there"
+grep -q 'safeMode = false' "$O"
+check $? "keeps settings that came after the line it rewrote"
+[ -f "$O.pak-preseed" ] && grep -q 'modIndexes = {},' "$O.pak-preseed"
+check $? "keeps the original under our own name, not options.lua.bak"
+[ ! -e "$O.bak" ]
+check $? "never touches options.lua.bak, which is the engine's recovery copy"
+log_of "$SB" | grep -q "no mod catalogue was configured"
+check $? "says so in the log rather than editing silently"
+
+# The decisive check: the ENGINE'S parser has to accept what we produced. Every
+# text assertion above passed once for a file the engine rejected at byte 31.
+SER="$ROOT/build/Gen1Recomp.pak/game/src/core/SaveSerializer.lua"
+if [ -f "$SER" ] && command -v lua >/dev/null 2>&1; then
+    lua -e '
+      local S = dofile("'"$SER"'")
+      local f = assert(io.open("'"$O"'", "r"))
+      local body = f:read("*a"); f:close()
+      local t, err = S.decode(body)
+      if not t then error("engine parser rejected the rewritten options.lua: " .. tostring(err)) end
+      assert(type(t.modIndexes) == "table", "modIndexes missing")
+      assert(type(t.modIndexes[1]) == "table", "positional row lost")
+      assert(type(t.modIndexes[1].feed) == "string", "row.feed must be a string")
+      assert(t.musicVol == 7, "an existing setting was lost in the rewrite")
+      assert(t.safeMode == false, "a setting after the rewritten line was lost")
+    ' >/dev/null 2>&1
+    check $? "the engine's own SaveSerializer decodes the REWRITTEN file intact"
+else
+    echo "  --   engine parser check skipped (need lua and a staged build)"
+fi
+
+# Second launch must not touch it again, and -- the point of the marker -- a
+# player who removes the catalogue must not have it put back.
+printf 'return {\n  musicVol = 7,\n  modIndexes = {},\n}\n' > "$O"
+rm -f "$O.pak-preseed"
+run_launch "$SB"
+grep -q 'gen1recomp-mod-index' "$O"
+if [ $? -eq 0 ]; then bad "re-added the catalogue after the player removed it"
+else ok "removed stays removed -- the seed happens once, not every launch"; fi
+[ ! -e "$O.pak-preseed" ]
+check $? "does not rewrite anything on the second launch"
+rm -rf "$SB"
+
+# A catalogue the player already configured is never rewritten: the populated
+# form is a multi-line block, so the empty-table pattern cannot match it.
+SB="$(make_sandbox)"
+O="$SB/SDCARD/$SAVE_REL/options.lua"
+mkdir -p "$SB/SDCARD/$SAVE_REL"
+printf 'return {\n  modIndexes = {\n    [1] = {\n      feed = "https://example.invalid/index.json",\n    },\n  },\n}\n' > "$O"
+BEFORE="$(sha256sum "$O" | cut -d' ' -f1)"
+run_launch "$SB"
+[ "$(sha256sum "$O" | cut -d' ' -f1)" = "$BEFORE" ]
+check $? "leaves an options.lua that already has an index byte-for-byte alone"
+rm -rf "$SB"
+
+# --------------------------------------------------------------------------
+echo
 echo "mods dropped into the pak's mods/ folder by hand"
 
 SB="$(make_sandbox)"

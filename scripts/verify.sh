@@ -489,7 +489,23 @@ if [ -d "$MOD_DIR" ]; then
     # those, and writing our file first would lose every setting the player had.
     code_only | matches '\.bak' && code_only | matches '\.tmp' \
         || { bad "launch.sh seeds options.lua without checking for .bak/.tmp -- that would eat the player's settings"; idx_ok=1; }
-    check $idx_ok "mod index matches the lock, and the seed respects options recovery"
+    # The seed happens ONCE. Without a marker, the empty-list branch would put
+    # the catalogue back on the next launch after a player removed it in-game --
+    # the opposite of what the README promises.
+    code_only | matches 'SEEDED=' \
+        || { bad "launch.sh has no seeded-once marker; a removed catalogue would come back"; idx_ok=1; }
+    code_only | matches '\[ -e "[$]SEEDED" \]' \
+        || { bad "launch.sh does not check the seeded marker before adding the catalogue"; idx_ok=1; }
+
+    # It may rewrite options.lua only when the list is demonstrably empty, and it
+    # must never write the engine's own recovery copy.
+    code_only | matches 'modIndexes = \{\},' \
+        || { bad "launch.sh no longer matches the engine's empty-modIndexes form"; idx_ok=1; }
+    # Writes only. `[ ! -e "$OPTS.bak" ]` is the recovery GUARD and must stay.
+    code_only | matches '(>[[:space:]]*"?[$]OPTS[.]bak|(cp|mv)[^|]*[$]OPTS[.]bak)' \
+        && { bad "launch.sh writes options.lua.bak -- that is the engine's recovery copy"; idx_ok=1; }
+
+    check $idx_ok "mod index matches the lock, seeds once, and respects options recovery"
 
     # Regression guard. The mod this replaced carried 14 MB of Windows OpenXR
     # loader (oxr/, oxr.zip) that cannot execute on aarch64 Linux. Nothing should

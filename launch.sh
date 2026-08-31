@@ -479,27 +479,95 @@ MOD_INDEX_OWNER="bryanthaboi"
 MOD_INDEX_REPO="gen1recomp-mod-index"
 
 OPTS="$SAVEROOT/options.lua"
-if [ ! -e "$OPTS" ] && [ ! -e "$OPTS.bak" ] && [ ! -e "$OPTS.tmp" ]; then
-    if mkdir -p "$SAVEROOT" 2>/dev/null && cat > "$OPTS" <<EOF
-return {
-  modIndexes = {
-    [1] = {
-      url = "$MOD_INDEX_OWNER/$MOD_INDEX_REPO",
-      feed = "https://$MOD_INDEX_OWNER.github.io/$MOD_INDEX_REPO/data/index.json",
-      base = "https://$MOD_INDEX_OWNER.github.io/$MOD_INDEX_REPO/",
-      fallback = "https://raw.githubusercontent.com/$MOD_INDEX_OWNER/$MOD_INDEX_REPO/main/site/data/index.json",
-      label = "$MOD_INDEX_OWNER/$MOD_INDEX_REPO",
-    },
-  },
+# One seed, ever. The marker is what makes "remove it in-game and it stays
+# removed" true: without it, the empty-list branch below would put the catalogue
+# back on the very next launch, which is the opposite of what the README promises.
+# It lives beside options.lua rather than in the state root so that wiping the
+# save directory really does mean starting over.
+SEEDED="$SAVEROOT/.pak-mod-index-seeded"
+
+# The rows ModIndex.resolveSource expands a bare "owner/repo" into. Kept as a
+# contract in upstream.lock (contracts.mod_index) so verify.sh catches drift.
+#
+# THE "[1] =" IS LOAD-BEARING. options.lua is not read by Lua: the engine parses
+# it with src/core/SaveSerializer.lua, a restricted reader that accepts only
+# `ident = value` or `[key] = value` and fails on a positional entry. Writing the
+# list element as a bare "{" cost a release-blocking bug -- the file failed to
+# parse ("parse error at byte 31: expected key"), loadOptions fell back to
+# defaults, and the engine then wrote a full snapshot back, erasing the seed and
+# logging nothing the player would ever see. verify.sh decodes the exact file
+# this produces with the engine's own parser.
+mod_index_rows() {
+    printf '    [1] = {\n'
+    printf '      url = "%s/%s",\n' "$MOD_INDEX_OWNER" "$MOD_INDEX_REPO"
+    printf '      feed = "https://%s.github.io/%s/data/index.json",\n' "$MOD_INDEX_OWNER" "$MOD_INDEX_REPO"
+    printf '      base = "https://%s.github.io/%s/",\n' "$MOD_INDEX_OWNER" "$MOD_INDEX_REPO"
+    printf '      fallback = "https://raw.githubusercontent.com/%s/%s/main/site/data/index.json",\n' "$MOD_INDEX_OWNER" "$MOD_INDEX_REPO"
+    printf '      label = "%s/%s",\n' "$MOD_INDEX_OWNER" "$MOD_INDEX_REPO"
+    printf '    },\n'
 }
-EOF
-    then
+
+if [ -e "$SEEDED" ]; then
+    :   # had our one go; whatever the player did with it since is theirs
+elif [ ! -e "$OPTS" ] && [ ! -e "$OPTS.bak" ] && [ ! -e "$OPTS.tmp" ]; then
+    # A GENUINELY fresh install, and the .bak/.tmp test is not paranoia:
+    # SaveData.loadOptions RECOVERS from those copies when options.lua is missing
+    # (a guard added after an interrupted rewrite lost people every setting they
+    # had). Writing our file over a card that still holds a backup would step in
+    # front of that recovery and destroy the lot. Where no options file exists at
+    # all, a partial one is safe -- loadOptions merges whatever it reads over the
+    # defaults.
+    if mkdir -p "$SAVEROOT" 2>/dev/null && { printf 'return {\n  modIndexes = {\n'
+            mod_index_rows
+            printf '  },\n}\n'; } > "$OPTS"; then
+        : > "$SEEDED" 2>/dev/null
         echo "mods      fresh install: added the official mod catalogue to Find mods"
         echo "mods        $MOD_INDEX_OWNER/$MOD_INDEX_REPO"
         echo "mods      Remove it in-game if you would rather not browse it; it is not re-added."
     else
         echo "mods      could not seed the mod catalogue (continuing without it)"
         rm -f "$OPTS" 2>/dev/null
+    fi
+elif [ -f "$OPTS" ] && grep -q '^  modIndexes = {},$' "$OPTS" 2>/dev/null; then
+    # An install that predates the seed, or one whose options.lua the engine
+    # rewrote before we ever ran. The list is empty and we have never seeded, so
+    # this is still our one go.
+    #
+    # Matched on the engine's exact serialized form for an EMPTY table, anchored
+    # to the whole line. Any index the player has added makes this a multi-line
+    # block and the pattern misses -- so a configured catalogue is never touched,
+    # and neither is a file we do not recognise. Failing to match is the safe
+    # outcome: it does nothing.
+    tmp="$OPTS.pak-tmp"
+    if { while IFS= read -r line || [ -n "$line" ]; do
+             if [ "$line" = "  modIndexes = {}," ]; then
+                 printf '  modIndexes = {\n'
+                 mod_index_rows
+                 printf '  },\n'
+             else
+                 printf '%s\n' "$line"
+             fi
+         done < "$OPTS"; } > "$tmp" 2>/dev/null \
+       && [ -s "$tmp" ] \
+       && grep -q "$MOD_INDEX_OWNER.github.io" "$tmp" \
+       && [ "$(grep -c '' "$tmp")" -gt "$(grep -c '' "$OPTS")" ]; then
+        # The original is kept under our OWN name, never options.lua.bak -- that
+        # one belongs to the engine's recovery and clobbering it would destroy
+        # the very thing the guard above exists to protect.
+        cp -f "$OPTS" "$OPTS.pak-preseed" 2>/dev/null
+        if mv -f "$tmp" "$OPTS" 2>/dev/null; then
+            : > "$SEEDED" 2>/dev/null
+            echo "mods      no mod catalogue was configured; added the official one to Find mods"
+            echo "mods        $MOD_INDEX_OWNER/$MOD_INDEX_REPO"
+            echo "mods      Your previous options.lua is at $(basename "$OPTS").pak-preseed"
+            echo "mods      Remove it in-game if you would rather not browse it; it is not re-added."
+        else
+            rm -f "$tmp" 2>/dev/null
+            echo "mods      could not add the mod catalogue (continuing without it)"
+        fi
+    else
+        rm -f "$tmp" 2>/dev/null
+        echo "mods      could not rewrite options.lua safely; left it alone"
     fi
 fi
 
@@ -544,31 +612,17 @@ fi
 # arm64 Linux resolves to "low", whose caps set shaderfx false. See
 # contracts.shaderfx in upstream.lock; verify.sh asserts it.
 
-# --- one-time ROM import ---------------------------------------------------
-# Gen1Recomp needs a cartridge dump exactly once: it verifies the ROM, decodes
-# its data into a private cache, and never reads the ROM again. So rather than
-# asking the player to copy a dump into some pak-internal folder, look in the
-# Game Boy folders they already use and copy the first match across.
+# --- your cartridge dumps ---------------------------------------------------
+# Gen1Recomp needs a dump exactly once: it verifies the ROM, decodes its data
+# into a private cache, and never reads the ROM again.
 #
-# The player's own files are only ever read -- never moved, renamed or modified.
+# The pak does not hand it over any more -- the engine browses for it, and the
+# section further down explains why. All that happens here is identification:
+# hash the player's dumps and print where they are, so the path is in the log
+# when they are standing in the engine's file browser.
 #
-# Matched by SHA-256, not the SHA-1 upstream publishes. These devices ship
-# sha256sum and md5sum but NO sha1sum (verified on a Trimui Brick, 2026-08-11),
-# so a SHA-1 scan silently matched nothing at all. The constants below were
-# cross-checked against real Red and Blue dumps on-device.
-#
-# The scan is only a convenience pre-filter: the engine still performs its own
-# authoritative SHA-1 check at import time. So even a wrong constant here fails
-# safe -- the player lands on Choose ROM rather than importing wrong data.
-# Where the engine actually looks on Linux.
-#
-# NOT baseroms/ -- that scan is gated behind `baseRomDiscovery`, which
-# RomImporter.lua sets to `opts.launcher and Platform.isUWP()`, i.e. Xbox only.
-# On Linux the engine tries zenity/kdialog (absent here), then falls back to
-# findPendingRom(), which scans the PhysFS root for a 1 MiB .gb/.gbc. LOVE mounts
-# the save directory into that root, so a dump dropped at the top of the save dir
-# is found; anything in a subfolder is invisible. SAVEROOT is set at the top of
-# this section.
+# The player's own files are only ever READ -- never moved, renamed, copied or
+# deleted.
 # Every version the engine can import: id, display label, and the SHA-256 of the
 # canonical US dump.
 #

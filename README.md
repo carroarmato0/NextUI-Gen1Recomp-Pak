@@ -263,7 +263,11 @@ The voxel mod is the only one this pak bundles, but it is one of over a hundred.
 
 **On a brand-new install the pak adds that catalogue for you**, and says so in the log. The engine ships none configured, on purpose: adding one is an act of trusting whoever publishes it, so it asks rather than assuming. That default is right for a desktop, but on a handheld the "ask" means typing a URL on a d-pad keyboard, and this particular catalogue is published by the engine's own author. Remove it in-game and it stays removed — it is entered once, never re-added.
 
-It is only ever added when there is no options file at all, backups included. If yours is missing but a `.bak` or `.tmp` survives, the engine heals your settings from those, and writing ours would destroy them.
+It is added in one of two situations, and **only once either way**. On a genuinely fresh install, where no options file exists at all — backups included. Or on an existing install whose catalogue list is empty, which is what you get if the pak was installed before this feature existed, or if the engine wrote its options file before the pak ever ran. In the second case the pak edits your existing options file in place, keeps a copy of the original beside it as `options.lua.pak-preseed`, and leaves every other setting untouched.
+
+It never writes `options.lua.bak`. That file is the engine's own recovery copy: if your options file is missing but a `.bak` or `.tmp` survives, the engine heals your settings from those, and writing over that would destroy them.
+
+**Remove the catalogue in-game and it stays removed.** The pak records that it has had its one go, so an empty list on a later launch is read as your decision rather than as something to fix.
 
 To add it by hand — on an existing install, or after removing it — you do **not** need the full URL. **Find mods** accepts a bare `owner/repo`:
 

@@ -98,16 +98,31 @@ the pak directory — a pak update would otherwise destroy them.
   `contracts.legacy_mod_ids` in `upstream.lock` is the source of truth; `launch.sh` deletes each id
   from the pak's own `game/mods/` and only *reports* a copy in the player's save dir, and
   `verify.sh` asserts both the staged tree and `launch.sh`'s hard-coded copy of the list.
-- **Gen1Recomp has an official mod index, and `launch.sh` seeds it on fresh installs only.**
-  `bryanthaboi/gen1recomp-mod-index`, ~107 mods, pinned in `contracts.mod_index`. The engine ships
-  none configured by design (`src/mods/ModIndex.lua`: adding one is a deliberate act of trust), but
-  the "ask" costs a URL typed on a d-pad, so the pak enters it once. **The guard is the interesting
-  part:** it writes only when `options.lua`, `options.lua.bak` *and* `options.lua.tmp` are all
-  absent. `SaveData.loadOptions` heals from the `.bak`/`.tmp` copies when the main file is missing,
-  so writing ours over that state would destroy every setting the player had. `verify.sh` asserts
-  both the slug and the presence of that guard. `ModIndex.resolveSource` also accepts a bare
-  `owner/repo`, which is what the README tells people to type. Works on device only because of the
-  CA bundle. Player-installed mods land in `$SAVEROOT/mods/`, so a pak update leaves them alone.
+- **Gen1Recomp has an official mod index, and `launch.sh` seeds it ONCE — on a fresh install, or
+  into an empty list.** `bryanthaboi/gen1recomp-mod-index`, ~107 mods, pinned in
+  `contracts.mod_index`. The engine ships none configured by design (`src/mods/ModIndex.lua`:
+  adding one is a deliberate act of trust), but the "ask" costs a URL typed on a d-pad.
+  **The guards are the interesting part, and there are now three.**
+  (1) A fresh install is written only when `options.lua`, `options.lua.bak` *and* `options.lua.tmp`
+  are all absent — `SaveData.loadOptions` heals from the `.bak`/`.tmp` copies when the main file is
+  missing, so writing ours over that state would destroy every setting the player had.
+  (2) An **existing** file is edited only when it contains the engine's exact serialized empty form,
+  matched anchored to the whole line as `  modIndexes = {},`. A configured catalogue is a multi-line
+  block, so the pattern cannot match it; failing to match does nothing, which is the safe outcome.
+  The original is copied to `options.lua.pak-preseed` — **never** `options.lua.bak`, which belongs to
+  the engine's recovery and clobbering it would destroy the thing guard (1) exists to protect.
+  (3) `$SAVEROOT/.pak-mod-index-seeded` records that we have had our one go, so a player who removes
+  the catalogue in-game does not get it back next launch. Without it the empty-list branch would
+  re-add it forever, which is the opposite of what the README promises. The marker sits beside
+  `options.lua` rather than in the state root, so wiping the save directory really does start over.
+  `verify.sh` asserts the slug, both guards, the marker, and that nothing writes `options.lua.bak`;
+  `test/test-launch.sh` decodes the **rewritten** file with the engine's own `SaveSerializer`,
+  because asserting on the text we wrote is exactly what let a bare `{` ship once.
+  Verified on a Brick, 2026-08-31: a real 14 KB options.lua with `modIndexes = {}` was rewritten,
+  all 54 top-level keys survived, the engine parsed it and then fetched the catalogue.
+  `ModIndex.resolveSource` also accepts a bare `owner/repo`, which is what the README tells people to
+  type. Works on device only because of the CA bundle. Player-installed mods land in
+  `$SAVEROOT/mods/`, so a pak update leaves them alone.
 - **Choosing a version does not choose what gets imported, and that is upstream, not us.** On Linux
   `chooseRom` (zenity/kdialog) is absent, so `RomImporter.lua:1971` falls back to
   `findPendingRom(self.ready)` — the **first** not-yet-imported `.gb/.gbc` in
