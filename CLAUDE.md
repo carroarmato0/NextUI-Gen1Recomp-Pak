@@ -332,11 +332,16 @@ the pak directory — a pak update would otherwise destroy them.
 - **The log now ends with `=== love exited with status N ===`, which sharpens an old diagnostic.**
   A log that stops dead right after `=== love output follows ===` used to be ambiguous; it now means
   love died before returning, which is the libmpg123 signature (issue #1). A clean quit says so.
-- **shellcheck's SC2329 fires on `cleanup` and `restore_cpu_state` now.** It does not count `trap
-  cleanup EXIT` as an invocation, and it only started reporting once the script stopped ending in
-  `exec`. Both carry an inline `# shellcheck disable=SC2329`. The directive must be the **last**
-  comment line before the function, or the following comment lines are parsed as part of it (SC1072/
-  SC1073). Do not put this in `.shellcheckrc` — that would hide genuinely dead functions in `scripts/`.
+- **shellcheck reports the trap-invoked functions differently per version, and CI runs an older one.**
+  Neither `cleanup` nor `restore_cpu_state` is credited as called, because `trap cleanup EXIT` is not
+  counted as an invocation — and it only began reporting once the script stopped ending in `exec`.
+  **0.11 raises SC2329 on the function; 0.9 (Ubuntu 24.04, the CI runner) raises SC2317 on every
+  command inside it.** Disabling only the code your local build emits passes locally and fails in
+  CI — that is exactly how PR #13 went red. Both functions carry
+  `# shellcheck disable=SC2329,SC2317`. The directive must be the **last** comment line before the
+  function or the following comment lines are parsed as part of it (SC1072/SC1073). Do not move this
+  to `.shellcheckrc`: that would hide genuinely dead functions across `scripts/`. To check the CI
+  version locally, fetch the static binary from `koalaman/shellcheck` releases and lint with both.
 - **`verify-device.sh` grades `$LOG`, so it must guarantee the log is FRESH.** It used to print an
   instruction and wait for Enter. An Enter pressed before launching left every group grading a log
   from an earlier session: a run where the device was never touched reported *8 passed, 0 failed*

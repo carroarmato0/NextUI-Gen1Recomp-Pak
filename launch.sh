@@ -120,8 +120,9 @@ save_cpu_state() {
 "
     done
 }
-# Called from cleanup() only, so shellcheck's SC2329 cascades onto it from there.
-# shellcheck disable=SC2329
+# Called from cleanup() only, so shellcheck's unreachable-code warnings cascade
+# onto it from there. SC2329 on 0.11, SC2317 on older builds -- see cleanup().
+# shellcheck disable=SC2329,SC2317
 restore_cpu_state() {
     printf '%s' "$CPU_SAVED" | while IFS="$(printf '\t')" read -r pol gov mx mn; do
         [ -d "$pol" ] || continue
@@ -143,7 +144,12 @@ restore_cpu_state() {
 # call. It only began reporting SC2329 once this script stopped ending in `exec`
 # -- and that trap is precisely why the exec had to go. The directive has to be
 # the LAST comment line before the function or it is parsed as part of itself.
-# shellcheck disable=SC2329
+#
+# Both codes are needed: shellcheck 0.11 reports SC2329 on the function, older
+# versions -- including the one on the CI runner -- report SC2317 on each command
+# inside it instead. Disabling only the one your local build happens to emit
+# passes locally and fails in CI.
+# shellcheck disable=SC2329,SC2317
 cleanup() {
     echo 0 > /sys/class/speaker/mute 2>/dev/null
     rm -f "$HOME/.asoundrc" 2>/dev/null
