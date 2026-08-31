@@ -414,6 +414,12 @@ The runtime itself is known to work on this hardware class — the LÖVE 11.5 AR
 
 **On v0.4.0 specifically:** the new voxel mod **loads and renders on a Brick** — verified on hardware, walking the overworld in 3D, with the engine logging `loaded mod DRAMALESS_SHAPE 2.0.1` and persisting the voxel setting. The in-place upgrade from v0.3.0 was verified on **both** devices: merged over the old install, the superseded mod is removed on first launch, and no save was touched.
 
+**On v0.4.4, both devices were re-verified over ADB.** Smart Pro S: GLES 3.2 on **Mali-G57**, window at the panel's native 1280×720, audio initialised with no underruns, and the pak's own controller mapping confirmed live. Brick: GLES 3.2 on **PowerVR Rogue GE8300**, 1024×768, same result — which is also why `MALI_CreateWindow` in a Brick log means nothing about the GPU.
+
+**The CPU restore was measured on the Smart Pro S, and it is the device that needed it.** Through v0.4.3 the launcher never undid its own CPU changes at all. Measured across a full launch here: cores `0-1,4` before, `0-7` while running, back to `0-1,4` after; cluster ceilings 1320/2088 MHz raised to 1416/2160 and restored; the cpuset created with 20 tasks and removed on exit. NextUI resets governors and ceilings by itself but never re-offlines those five cores, so before the fix they stayed up for the rest of the session — invisible on a Brick, where all four cores are always online.
+
+Both devices report the same controller GUID and the same live mapping, but a **different button count** — 11 on the Smart Pro S against 15 on the Brick. The shipped mapping only reaches `b10`, so it fits both.
+
 **Both devices are now profiled on v0.4.0.** Brick: still GPU-bound (p75 96%, peak 100%), RSS around 440 MB, 3 MB of swap touched. Smart Pro S: 726 MB peak and paging in 9 of 30 samples, against the old mod's 722 MB and 22 of 30 — memory-bound and swap-thrashing, essentially unchanged. Swap remains a requirement, not a suggestion.
 
 ## Building from source

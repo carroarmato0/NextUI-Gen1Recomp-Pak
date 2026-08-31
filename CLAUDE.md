@@ -329,6 +329,10 @@ the pak directory — a pak update would otherwise destroy them.
   play (3836 kB measured). Re-measured after the fix on the same Brick: 1.8 GHz restored, no stray
   processes. `test/test-launch.sh` asserts there is no `exec` of love, and that the exit status is
   logged and propagated.
+  **Confirmed on a Smart Pro S, 2026-08-31 — the device the leak actually mattered on.** Cores
+  `0-1,4` before, `0-7` running, back to `0-1,4` after; ceilings 1320000/2088000 raised to
+  1416000/2160000 and restored; `/sys/fs/cgroup/cpuset/gen1recomp` created with 20 tasks and gone on
+  exit. That closes the one claim in this fix that had only ever been reasoned about.
 - **The log now ends with `=== love exited with status N ===`, which sharpens an old diagnostic.**
   A log that stops dead right after `=== love output follows ===` used to be ambiguous; it now means
   love died before returning, which is the libmpg123 signature (issue #1). A clean quit says so.
@@ -356,6 +360,20 @@ the pak directory — a pak update would otherwise destroy them.
   audio, joystick and mapping without anyone touching the device. Confirmed on a Brick:
   `OpenGL ES 3.2 ... Imagination Technologies PowerVR Rogue GE8300`, 1024x768, `audio: ok`. The
   *game* still needs a real launch — it stays on the launcher headlessly (RSS ~44 MB, no mod load).
+- **The two devices really do have different GPUs, and the smoke test now proves it.** Measured
+  2026-08-31: Smart Pro S reports `OpenGL ES 3.2 ... ARM Mali-G57`, Brick reports
+  `OpenGL ES 3.2 ... Imagination Technologies PowerVR Rogue GE8300`. Same GLES level, different
+  vendor — so the platform table is right and the `MALI_CreateWindow` line below is the red herring
+  it is documented as.
+- **Both devices report the SAME controller GUID but a DIFFERENT button count.** 11 buttons on the
+  Smart Pro S, 15 on the Brick, 6 axes on each, and `guid=0300a3845e0400008e02000014010000` with
+  name `"Xbox 360 Controller"` on both. The shipped mapping only reaches `b10`, so it fits the
+  smaller set; it was confirmed live on both. Do not derive a per-device mapping from the button
+  count without checking the GUID first — they are not in step.
+- **`SDL_CreateWindow: ... 1024 768` in a tg5050 log is NOT a bug.** `conf.lua` asks for a
+  1024x768 desktop window and the handheld then goes fullscreen; that line logs the request, not the
+  result. The smoke test reads the real size afterwards and reported `window: 1280x720` on the same
+  run. On a Brick the two happen to coincide, which is why this only looks alarming on a Smart Pro S.
 - **`MALI_CreateWindow` in the log does not mean Mali.** The vendor SDL2 prints it on tg5040 too,
   where the GPU is PowerVR: device-tree `compatible` is `img,gpu`, `/sys/kernel/debug/pvr/` exists,
   and the same library exports `PVR_Vulkan_*`. Do not "correct" the platform table from that line.
