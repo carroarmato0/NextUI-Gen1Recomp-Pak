@@ -113,8 +113,17 @@ read -r -p "  Press Enter once the smoke test has run and exited... " _
 
 group "Smoke test"
 SMOKE="$(logtext)"
+# launch.sh overwrites the log every launch, so a log without the diag banner is
+# not a failing smoke test -- it is a launch that ran something else, or a stale
+# log from an earlier run. Reported separately, because "no GLES renderer" for a
+# smoke test that never started sends you debugging the wrong thing entirely.
 if [ -z "$SMOKE" ]; then
     bad "no log at $LOG -- the pak did not run at all"
+elif ! printf '%s\n' "$SMOKE" | matches '^diag'; then
+    warn "the smoke test did not run -- this log is from a different launch"
+    printf '        the pak logs \033[1mdiag\033[0m lines when it runs a .love from the state dir;\n'
+    printf '        this log shows: %s\n' "$(printf '%s\n' "$SMOKE" | grep -m1 -E '^(launch|diag)' || echo '(no launch line at all)')"
+    printf '        Re-run and open Tools > Gen1Recomp at the prompt, before pressing Enter.\n'
 else
     printf '%s\n' "$SMOKE" | matches 'renderer:.*(OpenGL ES|GLES)' \
         && ok "a GLES renderer was created" \
@@ -181,12 +190,18 @@ else
         && bad "launch.sh reported FATAL: $(printf '%s\n' "$GLOG" | grep -m1 FATAL)" \
         || ok "no fatal launcher errors"
 
-    if printf '%s\n' "$GLOG" | matches 'rom .*matched (Red|Blue|Yellow)'; then
+    # The labels come from launch.sh's ROM_TABLE rather than being listed here.
+    # This check hard-coded Red|Blue|Yellow, so it silently never covered Gold --
+    # and it matched on log wording that v0.4.3 changed, which made a healthy card
+    # report "no ROM handling in the log at all". Derive both, or it drifts again.
+    rom_labels="$(sed -n '/^ROM_TABLE="/,/"$/p' "$ROOT/launch.sh" \
+                  | sed -e 's/^ROM_TABLE="//' -e 's/"$//' | awk '{print $2}' | paste -sd'|' -)"
+    if printf '%s\n' "$GLOG" | matches "rom .*matched (${rom_labels})"; then
         ok "a cartridge dump was found and staged (matched by SHA-256)"
-    elif printf '%s\n' "$GLOG" | matches 'rom .*already imported'; then
-        ok "ROM already imported; the scan was skipped as intended"
+    elif printf '%s\n' "$GLOG" | matches 'rom .*(a dump for every version is staged|already imported)'; then
+        ok "a dump for every version is staged; the scan was skipped as intended"
     elif printf '%s\n' "$GLOG" | matches 'rom .*no match found'; then
-        warn "no ROM matched -- put a US Red/Blue/Yellow dump in any (GB)/(GBC) folder to test the import path"
+        warn "no ROM matched -- put a US ${rom_labels%%|*} dump in any (GB)/(GBC) folder to test the import path"
     else
         bad "no ROM handling in the log at all"
     fi
