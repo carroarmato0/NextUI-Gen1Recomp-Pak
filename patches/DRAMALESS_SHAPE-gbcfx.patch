@@ -1,16 +1,16 @@
 Make the voxel mod survive the removal of src/render/GBCFX.lua.
 
 Gen1Recomp deleted that module between 0.2.20 and 0.2.24, replacing it with
-src/render/ShaderFX.lua. DRAMALESS_SHAPE 2.0.1 -- and 2.0.3, the latest, which
-predates the removal -- still require it in two places, and neither survives it:
+src/render/ShaderFX.lua. DRAMALESS_SHAPE still requires it in two places as of 2.0.3, the latest
+release, and neither survives it:
 
-  main.lua:252  require("src.render.GBCFX").setLevel(0)
-  main.lua:293  pcall(require("src.render.GBCFX").setLevel, 0)
+  main.lua:267  require("src.render.GBCFX").setLevel(0)
+  main.lua:308  pcall(require("src.render.GBCFX").setLevel, 0)
 
 The second only looks guarded. The pcall wraps the CALL; the require is an
 argument, so it is evaluated first and throws on its own.
 
-Line 293 sits at the top of pinEngineFx, which is the first statement of the
+Line 308 sits at the top of pinEngineFx, which is the first statement of the
 mod's "ui.options.rows" hook. src/mods/Hooks.lua runs every link under pcall and
 logs-and-skips one that throws, so the wrapper dies before insertGrouped and the
 mod's rows never reach OPTIONS. On a handheld that is the whole control surface:
@@ -30,8 +30,9 @@ in the staged mod, and that game/src/render/GBCFX.lua has NOT come back upstream
 (if it does, this patch is obsolete and must be deleted rather than carried).
 
 --- a/main.lua
+--- a/main.lua
 +++ b/main.lua
-@@ -249,7 +249,8 @@
+@@ -264,7 +264,8 @@
            Pipelines.syncOptions(self.save.options)
            self.save.options.tilt, self.save.options.gbcfx = 0, 0
            require("src.render.Tilt").setLevel(0)
@@ -41,7 +42,7 @@ in the staged mod, and that game/src/render/GBCFX.lua has NOT come back upstream
            self:writeOptions()
            V.log:event("options", "hotkey", { key = key })
            return
-@@ -290,7 +291,8 @@
+@@ -305,7 +306,8 @@
    local changed = opts and ((opts.tilt or 0) ~= 0 or (opts.gbcfx or 0) ~= 0)
    if opts then opts.tilt, opts.gbcfx = 0, 0 end
    pcall(require("src.render.Tilt").setLevel, 0)

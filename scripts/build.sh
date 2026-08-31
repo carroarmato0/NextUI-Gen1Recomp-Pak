@@ -315,14 +315,24 @@ if [ "$WITH_VOXEL" = 1 ]; then
   mkdir -p "$MOD_WORK"
   unzip -q "$VOXEL_ZIP" -d "$MOD_WORK" || fail "could not unpack the voxel mod"
 
-  # Exactly one top-level entry, and it is the name we pinned.
-  found="$(find "$MOD_WORK" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)"
-  [ "$found" = "$ROOT_DIR" ] || fail "unexpected voxel mod archive layout.
+  # Two layouts exist and the lock says which to expect, so a silent change of
+  # shape fails the build instead of installing a tree with no entry point.
+  # 2.0.1/2.0.2 nested everything under DRAMALESS_SHAPE-<version>/; 2.0.3
+  # flattened it. archive_root empty means flat.
+  mkdir -p "$(dirname "$MOD_DIR")"
+  if [ -z "$ROOT_DIR" ]; then
+    [ -f "$MOD_WORK/manifest.json" ] || fail "upstream.lock says the voxel mod archive is flat
+(archive_root empty), but its top level has no manifest.json:
+$(find "$MOD_WORK" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort | tr '\n' ' ')"
+    mv "$MOD_WORK" "$MOD_DIR"
+  else
+    # Exactly one top-level entry, and it is the name we pinned.
+    found="$(find "$MOD_WORK" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)"
+    [ "$found" = "$ROOT_DIR" ] || fail "unexpected voxel mod archive layout.
 upstream.lock pins archive_root '$ROOT_DIR'; the zip's top level holds:
 $found"
-
-  mkdir -p "$(dirname "$MOD_DIR")"
-  mv "$MOD_WORK/$ROOT_DIR" "$MOD_DIR"
+    mv "$MOD_WORK/$ROOT_DIR" "$MOD_DIR"
+  fi
 
   # The LICENSE is the whole reason this mod replaced the last one -- see the
   # voxel_mod note in upstream.lock. A build that loses it must not succeed.

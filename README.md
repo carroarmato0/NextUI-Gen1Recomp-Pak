@@ -77,15 +77,21 @@ Pick each version once on the Choose ROM screen and it comes back. Your dumps ar
 
 ## First run: your ROM
 
-Gen1Recomp needs a cartridge dump **once**. It verifies the ROM, decodes the game data into its own cache, and never reads the ROM again.
+Gen1Recomp needs your cartridge dump **once**. It verifies the ROM, decodes the game data into its own cache, and never reads the ROM again.
 
-So you do not need to move or copy anything. **Leave your dump where you already keep it** — the pak scans your own Game Boy folders on launch and copies what it finds into the place the engine expects.
+**You pick the file yourself, in the game.** On the Choose ROM screen, select a version and Gen1Recomp opens its own file browser, starting at `/mnt/SDCARD`. Navigate to wherever you keep your dumps — typically `Roms/Game Boy (GB)/` — and choose the file. It is imported and decoded, which takes a minute or so per version.
 
-It looks in whichever folders NextUI itself considers Game Boy or Game Boy Color: the ones whose name ends in `(GB)` or `(GBC)`, plus a folder named exactly `GB` or `GBC`. The display name in front of the tag is yours — `Game Boy (GB)`, `Nintendo Game Boy (GB)` and `GB` all work, because that is the same rule the frontend uses to decide which emulator opens a ROM.
+**The pak tells you where your dumps are.** On every launch it hashes the `.gb`/`.gbc` files in your Game Boy folders and writes the path of each recognised cartridge to its log, so you know exactly what to navigate to:
 
-It hashes the `.gb`/`.gbc` files it finds and copies every version that matches into the engine's import folder. Your file is only ever read: never moved, renamed or modified.
+```
+rom       your dumps, for the game's Choose ROM browser
+rom       (it opens at /mnt/SDCARD -- navigate to the path shown):
+rom         Red  ->  /mnt/SDCARD/Roms/Game Boy (GB)/Pokemon - Red Version.gb
+```
 
-The scan tracks each version separately, so **you can add a version later**: import Red today, drop a Yellow dump on the card next month, and the next launch picks it up. A version already imported is left alone, and once all three are in the scan stops running altogether. Only files of exactly 1 MiB are hashed — the engine accepts no other size — so a large homebrew library costs little.
+It looks in whichever folders NextUI itself considers Game Boy or Game Boy Color: ones whose name ends in `(GB)` or `(GBC)`, plus a folder named exactly `GB` or `GBC`. The display name in front of the tag is yours — `Game Boy (GB)`, `Nintendo Game Boy (GB)` and `GB` all work, the same rule the frontend uses to decide which emulator opens a ROM.
+
+Only files of exactly 1 MiB (Gen 1) or 2 MiB (Gen 2) are hashed, since the engine accepts no other size, so a large homebrew library costs almost nothing to scan. **Your files are only ever read** — never moved, renamed, copied or deleted.
 
 Accepted dumps (US cartridges only). Check yours on the device with `sha256sum <file>`:
 
@@ -94,19 +100,18 @@ Accepted dumps (US cartridges only). Check yours on the device with `sha256sum <
 | Red | `5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b` |
 | Blue | `2a951313c2640e8c2cb21f25d1db019ae6245d9c7121f754fa61afd7bee6452d` |
 | Yellow | `8cbaa499397e4f1a679c992ea9382a2dd7942ab398b48c19829c2d9529de47bf` |
-| Gold (beta) | `fb0016d27b1e5374e1ec9fcad60e6628d8646103b5313ca683417f52b97e7e4e` |
+| Gold | `fb0016d27b1e5374e1ec9fcad60e6628d8646103b5313ca683417f52b97e7e4e` |
+| Silver | `72b190859a59623cbef6c49d601f8de52c1d2331b4f08a8d2acc17274fc19a8c` |
 
-SHA-256 rather than the SHA-1 upstream publishes, because these handhelds ship `sha256sum` but not `sha1sum`. The engine still runs its own SHA-1 verification when it imports, so a dump has to satisfy both.
+The engine verifies by SHA-1; the pak matches by SHA-256 because these devices ship no `sha1sum`. Other regions, revisions and ROM hacks are not supported by the engine.
 
-**If nothing matches**, the pak still starts the game and lets Gen1Recomp's own launcher take over, where its *Choose ROM* screen explains what to do. You get an explanation on screen rather than a black one. The log lists which folders were searched.
+### Why the pak no longer imports for you
 
-Other regions, revisions and ROM hacks are not supported by the engine.
+Through v0.4.3 the pak copied a matching dump into the engine's import folder and the engine picked it up unattended — you never saw a file browser. Gen1Recomp 0.2.x changed that: the Choose ROM flow now opens the engine's own browser and returns before it ever reaches the pending-ROM scan it used to rely on (`findPendingRom`, still present but unreachable on Linux; its other callers are Android-only).
 
-### Choosing a version imports whichever one is still missing
+So a staged copy imports nothing and just duplicates 1–2 MiB per version. The pak reports paths instead. If you are updating and find leftover dumps in `.userdata/shared/Gen1Recomp/love/pokemon-love2d/`, they are those old copies — the log names them and they are safe to delete. **The pak will not delete them for you**, because a dump you placed there by hand is indistinguishable from one it copied.
 
-If you have several dumps, *Choose ROM* will often import a **different** edition from the one you picked — select Red and it may decode Blue. That is expected, and nothing is mislabelled.
-
-The pak stages every dump it recognises at once, and on Linux the engine has no file picker to offer, so it falls back to importing the first cartridge in the folder that has not been imported yet (`findPendingRom`). It identifies that file by its SHA-1, so Blue's data always becomes Blue — the version you *selected* is simply not what the fallback consults. Keep launching and every version you own gets imported; the end state is correct, only the order is not yours to choose. Reported upstream.
+Worth knowing: the same upstream change fixed a real annoyance. Picking a version used to import whichever edition happened to be first in folder order, so choosing Red could decode Blue. Now you choose the file, so you get what you picked.
 
 ### Crystal
 
@@ -120,7 +125,7 @@ Everything else is unaffected.
 
 The 3D look most people associate with Gen1Recomp is **not** part of the game — it comes from a separate, experimental mod, which replaces the flat overworld with a voxel one and adds camera depth, shadows and 3D battle presentation.
 
-Since v0.4.0 that mod is **[Dramaless Shape](https://github.com/artyrambles/DRAMALESS_SHAPE) 2.0.1**. Step the **VOXEL** row on the in-game OPTIONS menu to turn the 3D world on.
+Since v0.4.0 that mod is **[Dramaless Shape](https://github.com/artyrambles/DRAMALESS_SHAPE)**, bundled at **2.0.3** as of v0.4.4. Note that every performance figure below was measured against **2.0.1**, the version bundled through v0.4.3 — 2.0.3 has not been profiled on either device, and its author described the intervening 2.0.2 as slightly slower, so treat the numbers as indicative of the mod in general rather than of this exact build. Step the **VOXEL** row on the in-game OPTIONS menu to turn the 3D world on.
 
 ### Why the mod changed
 
@@ -443,7 +448,7 @@ This pak is **MIT**. It bundles:
 - **[Gen1Recomp](https://github.com/bryanthaboi/gen1recomp)** by bryanthaboi — MIT. The actual game; version **0.1.81** is bundled here. Upstream credits the [pret](https://github.com/pret) group's `pokered` disassembly as making the project possible.
 - **[LÖVE](https://love2d.org/) 11.5** — zlib. The ARM64 build comes from **[PortMaster](https://portmaster.games/)**, which is why this pak needs no compiler.
 - **[mpg123](https://www.mpg123.de/)** (`libmpg123.so.0`) — LGPL-2.1. A dependency of LÖVE that some TrimUI firmware images do not ship, so the pak carries a fallback copy in `bin/lib/`; without it the game cannot load on those images. Where the firmware provides its own, that one is used. The aarch64 build comes unmodified from the Ubuntu 18.04 `libmpg123-0` package.
-- **[Dramaless Shape](https://github.com/artyrambles/DRAMALESS_SHAPE)** 2.0.1 by Stahltier (artyrambles) — MIT. The 3D voxel mod. Derived from DramaticShapeVoxelMod's openly licensed code and from MIT-licensed work in [TERRARIUM](https://github.com/BrenoBertucci/Terrarium) by BrenoBertucci. Full licence text ships in the pak at `licenses/LICENSE.DRAMALESS_SHAPE.txt`.
+- **[Dramaless Shape](https://github.com/artyrambles/DRAMALESS_SHAPE)** 2.0.3 by Stahltier (artyrambles) — MIT. The 3D voxel mod. Derived from DramaticShapeVoxelMod's openly licensed code and from MIT-licensed work in [TERRARIUM](https://github.com/BrenoBertucci/Terrarium) by BrenoBertucci. Full licence text ships in the pak at `licenses/LICENSE.DRAMALESS_SHAPE.txt`.
 - **[The Gen1Recomp mod index](https://github.com/bryanthaboi/gen1recomp-mod-index)** — not bundled, but the catalogue this README points you at for everything else.
 - **[NextUI](https://github.com/LoveRetro/NextUI)** — the firmware this targets.
 - **[Swap.pak](https://github.com/carroarmato0/NextUI-Swap-Pak)** — recommended for the voxel mod. The swap performance figures quoted above are its measurements.

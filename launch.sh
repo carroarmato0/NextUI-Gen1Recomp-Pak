@@ -626,82 +626,45 @@ done <<ROMTABLE
 $ROM_TABLE
 ROMTABLE
 
-# Which versions already have a dump staged at the save-dir root.
+# --- where your cartridge dumps are ----------------------------------------
+# REPORT ONLY. This used to COPY a matching dump into the save-dir root, because
+# the engine scanned that root (findPendingRom) and imported whatever it found
+# there. As of 0.2.x it does not.
 #
-# THE TEST IS THE STAGED DUMP, AND DELIBERATELY NOT THE ENGINE'S CACHE. This gate
-# used to check $SAVEROOT/<v>/data/generated or rom-cache.complete -- a hand copy
-# of the engine's cache contract. That contract MOVES. Gen1Recomp 0.2.x added new
-# entries to CacheContract.REQUIRED_FILES, so caches built by 0.1.98 became
-# incomplete, CacheContract.isReady() correctly went false, and the engine asked
-# for those ROMs again -- while this gate still saw the old directory, logged
-# "every version already imported" and skipped the scan. Measured on a Brick,
-# 2026-08-31, upgrading 0.1.98 -> 0.2.43: blue was short 2 required files,
-# yellow 4, gold 9. Red had already been rebuilt and was short none.
+# RomImporter's Choose flow on Linux now opens the engine's own file browser and
+# returns before the pending-ROM scan is ever reached:
 #
-# We cannot track a contract that changes every few upstream releases, and
-# guessing at it is how you stranded someone. What we CAN guarantee is the one
-# thing the engine needs to heal itself: a dump it can re-import. So a version
-# counts as present when its dump is staged, and never otherwise.
+#   RomImporter.lua:2739  if isHandheld then Kit.FileBrowser.open(); return end
+#   RomImporter.lua:2759  chooseRom()  -- zenity/kdialog, absent on these devices
+#   RomImporter.lua:2765  if Kit.FileBrowser then open(); return end   <-- ours
+#   RomImporter.lua:2782  findPendingRom(...)  -- only if Kit.FileBrowser is gone
 #
-# The engine ignores a staged dump for a version it has already imported
-# (findPendingRom takes the first NOT-ready one), so the only cost of leaving
-# them there is the disk -- about 1 MiB per Gen 1 cart and 2 MiB per Gen 2 one.
-# That buys automatic recovery from every future cache invalidation.
-HAVE=" "
-for f in "$SAVEROOT"/*.gb "$SAVEROOT"/*.gbc; do
-    [ -f "$f" ] || continue
-    _sha_want=$(sha256sum "$f" 2>/dev/null | cut -d' ' -f1)
-    _m=$(rom_match) || continue
-    HAVE="$HAVE${_m%% *} "
-done
-
-want_count=0
-have_count=0
-for v in $VERSIONS; do
-    want_count=$((want_count + 1))
-    case "$HAVE" in *" $v "*) have_count=$((have_count + 1)) ;; esac
-done
-
-# Staging is all this pak does. Whether a version is actually IMPORTED is the
-# engine's call, and it can revoke that call: an engine update that adds entries
-# to CacheContract.REQUIRED_FILES invalidates an older cache, and the version
-# reappears on the launcher asking to be imported. That is upstream working as
-# intended, not damage -- and it is why the gate above tracks dumps rather than
-# caches. Say so here, because on the launcher screen it looks like data loss.
-echo "rom       staging only; the engine decides what to import. After an engine"
-echo "rom       update it may rebuild a version's data and ask for it again -- the"
-echo "rom       dump stays staged, so picking that version once is all it needs."
-
-if [ "$have_count" -eq "$want_count" ]; then
-    echo "rom       a dump for every version is staged; skipping the scan"
-elif ! command -v sha256sum >/dev/null 2>&1; then
-    # Degrade rather than guess. Copying an unverified 1 MiB file into the import
-    # folder would just make the engine reject it later with less explanation.
-    echo "rom       sha256sum unavailable on this device; skipping the scan."
-    echo "rom       Use the game's Choose ROM screen instead."
+# Verified on a Brick, 2026-08-31: none of HANDHELD/PORTMASTER/POKEPORT_HANDHELD/
+# TRIMUI/MUOS/KNULLI are set for a pak, so it is the plain-Linux branch at 2765
+# that opens the browser, not the handheld one at 2739. Either way it returns.
+# The engine's other two findPendingRom call sites are Android-only (one behind
+# mobileFileBridge, one inside focus(), which requires self.android).
+#
+# So a staged copy imports nothing and costs 1-2 MiB per version. What the player
+# actually needs is the PATH to pick in that browser -- which opens at
+# /mnt/SDCARD -- and that is what this prints.
+#
+# NOTHING HERE WRITES. The player's dumps are read to hash them and left exactly
+# where they are; existing staged copies are reported, never deleted. We cannot
+# tell a copy this pak made from a dump the player put there by hand, and
+# deleting the wrong one is unrecoverable.
+if ! command -v sha256sum >/dev/null 2>&1; then
+    echo "rom       sha256sum unavailable; cannot identify your dumps."
+    echo "rom       Use the game's Choose ROM screen and browse to them by hand."
 else
-    _labels=""
-    while read -r _id _label _sha; do
-        [ -n "$_id" ] || continue
-        _labels="$_labels/$_label"
-    done <<ROMTABLE
-$ROM_TABLE
-ROMTABLE
-    echo "rom       scanning for US ${_labels#/} dumps"
     ROMS="${ROMS_PATH:-${SDCARD_PATH:-/mnt/SDCARD}/Roms}"
-    imported=0
+    found=0
     scanned=0
-    # Import EVERY version found, not just the first. The engine keeps the three
-    # games' data side by side and its launcher lets the player pick, so stopping
-    # at the first hit would arbitrarily hide the others -- and since the scan runs
-    # in alphabetical order, "first" would silently mean Blue over Red.
     # Which folder holds the player's dumps is their choice, not ours. NextUI maps
     # a ROM folder to a system by the tag in its LAST parentheses, falling back to
     # the whole folder name when there are none (utils.c:getEmuName) -- so
     # "Game Boy (GB)", "My Game Boy Stuff (GB)" and plain "GB" are all one system
-    # to the frontend. Mirror that rule rather than hard-coding two display names:
-    # this scan is now the only way a dump gets imported, and against a renamed
-    # folder a hard-coded name finds nothing and says nothing is wrong.
+    # to the frontend. Mirror that rule rather than hard-coding display names.
     for dir in "$ROMS"/*; do
         [ -d "$dir" ] || continue
         tag="${dir##*/}"
@@ -712,81 +675,77 @@ ROMTABLE
             GB|GBC|gb|gbc) ;;
             *) continue ;;
         esac
-        echo "rom         looking in $dir"
         scanned=$((scanned + 1))
+        # Named even when it holds nothing we recognise: "your folder was never
+        # looked at" and "your dump was not recognised" have different fixes, and
+        # the tag rule above is the usual reason for the first.
+        echo "rom         looking in $dir"
         for rom in "$dir"/*.gb "$dir"/*.gbc; do
             [ -f "$rom" ] || continue
             # Skip AppleDouble junk: a macOS "._cart.gb" ends in .gb and would
             # otherwise be hashed pointlessly.
             case "$(basename "$rom")" in ._*) continue ;; esac
-            # The engine accepts exactly two sizes and nothing else: 1 MiB for the
-            # Gen 1 carts and 2 MiB for Gen 2 (RomImporter.isAcceptedRomSize). So
-            # no other size can be any known version. This reads no file contents,
-            # and it keeps the hashing down -- on a real 90-ROM card it leaves
-            # about 30 files, which matters because the scan repeats on every
-            # launch until every version is in.
+            # The engine accepts exactly two sizes: 1 MiB for the Gen 1 carts and
+            # 2 MiB for Gen 2 (RomImporter.isAcceptedRomSize). Filtering first
+            # keeps the hashing down -- on a real 90-ROM card it leaves about 30.
             #
-            # 2 MiB is NOT optional: it is the whole reason a Gold dump was
-            # invisible here when Gold first shipped. A 1 MiB-only filter skipped
-            # it before its hash was ever computed, so the scan reported nothing
-            # wrong. Keep this in step with the engine.
+            # 2 MiB is NOT optional: a 1 MiB-only filter is what made a Gold dump
+            # invisible when Gold first shipped, before its hash was ever computed.
             #
             # find rather than stat(1), which the device does not ship: busybox
             # find reads the c suffix as exact bytes (confirmed on a Smart Pro S
             # and a Brick, including on a name full of spaces and brackets).
-            #
-            # Two separate invocations rather than one `-size A -o -size B`. The
-            # single-size form is what has actually been run on device; the -o
-            # form relies on find applying its implicit -print across an OR, which
-            # is true of GNU find but has not been checked on this busybox. This
-            # project has been bitten three times by assuming a tool behaves as it
-            # does on a desktop (sha1sum, stat, setsid), and the failure mode here
-            # is the silent one: every dump skipped, nothing logged.
+            # Two separate invocations rather than one `-size A -o -size B`: the
+            # single-size form is what has been run on device, and the -o form
+            # relies on find applying its implicit -print across an OR, which is
+            # unverified on this busybox and would fail silently.
             [ -n "$(find "$rom" -size 1048576c 2>/dev/null)" ] \
                 || [ -n "$(find "$rom" -size 2097152c 2>/dev/null)" ] \
                 || continue
-            sha=$(sha256sum "$rom" 2>/dev/null | cut -d' ' -f1)
-            _sha_want="$sha"
+            _sha_want=$(sha256sum "$rom" 2>/dev/null | cut -d' ' -f1)
             _m=$(rom_match) || continue
-            vid="${_m%% *}"; version="${_m#* }"
-            # Already imported, or already staged from another folder: copying a
-            # 1 MiB file the engine would only skip buys nothing.
-            case "$HAVE" in *" $vid "*) continue ;; esac
-            echo "rom       matched $version: $rom"
-            mkdir -p "$SAVEROOT"
-            if cp -f "$rom" "$SAVEROOT/$(basename "$rom")"; then
-                imported=$((imported + 1))
-                HAVE="$HAVE$vid "
-            else
-                echo "rom       WARNING: could not copy $version into the import folder"
-            fi
+            [ "$found" -eq 0 ] && {
+                echo "rom       your dumps, for the game's Choose ROM browser"
+                echo "rom       (it opens at /mnt/SDCARD -- navigate to the path shown):"
+            }
+            found=$((found + 1))
+            echo "rom         ${_m#* }  ->  $rom"
         done
     done
 
-    if [ "$imported" -gt 0 ]; then
-        echo "rom       staged $imported dump(s) in $SAVEROOT"
-        echo "rom       the engine decodes them on boot / via Choose ROM"
-    else
-        # Not an error. The game's own launcher has a Choose ROM screen with
-        # on-screen instructions, which is a far better failure mode than exiting
-        # to a black screen.
+    if [ "$found" -eq 0 ]; then
         if [ "$scanned" -eq 0 ]; then
-            # Distinguish "your dump is not one of the three" from "there is
-            # nowhere to look" -- the fixes are completely different.
             echo "rom       no Game Boy folder found under $ROMS. A folder counts"
             echo "rom       when its name ends in (GB) or (GBC), or is exactly GB"
             echo "rom       or GBC -- the same rule NextUI uses to pick an emulator."
-        fi
-        echo "rom       no match found. Starting the built-in launcher so you can"
-        echo "rom       use its Choose ROM screen."
-        echo "rom       Accepted dumps (US cartridges only), by SHA-256:"
-        while read -r _id _label _sha; do
-            [ -n "$_id" ] || continue
-            printf 'rom         %-6s %s\n' "$_label" "$_sha"
-        done <<ROMTABLE
+        else
+            echo "rom       no recognised dump found. Only the canonical US cartridges"
+            echo "rom       are accepted, by SHA-256:"
+            while read -r _id _label _sha; do
+                [ -n "$_id" ] || continue
+                printf 'rom         %-6s %s\n' "$_label" "$_sha"
+            done <<ROMTABLE
 $ROM_TABLE
 ROMTABLE
-        echo "rom       Check yours on the device with: sha256sum <file>"
+            echo "rom       Check yours on the device with: sha256sum <file>"
+        fi
+    fi
+
+    # Copies older versions of this pak staged into the save root. They did
+    # something once; they do not now. Reported so the space can be reclaimed --
+    # never deleted here, because a dump the player placed themselves is
+    # indistinguishable from one we copied.
+    stale=0
+    for f in "$SAVEROOT"/*.gb "$SAVEROOT"/*.gbc; do
+        [ -f "$f" ] || continue
+        stale=$((stale + 1))
+    done
+    if [ "$stale" -gt 0 ]; then
+        echo "rom       $stale dump(s) sit in $SAVEROOT."
+        echo "rom       Older versions of this pak copied them there so the engine"
+        echo "rom       could import them unattended; it no longer reads that folder,"
+        echo "rom       so they are now just duplicates. Safe to delete, and left"
+        echo "rom       alone here in case you put them there yourself."
     fi
 fi
 

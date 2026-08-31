@@ -344,10 +344,24 @@ the pak directory — a pak update would otherwise destroy them.
 - **NextUI cannot launch a directory.** `addEntries` marks any directory `ENTRY_DIR` unless it ends
   `.pak`. That is why the old Emu layout needed a 0-byte `Gen1Recomp.g1r` stub, and why it shipped
   broken for anyone whose card lacked the folder. Under `Tools/` the `.pak` directory *is* the entry.
-- **The ROM scan is the only import path, so it matches folders the way NextUI does.** `getEmuName`
+- **The pak no longer imports ROMs; it reports where they are.** Gen1Recomp 0.2.x replaced the
+  pending-ROM scan with its own file browser. `RomImporter`'s Choose flow on Linux opens
+  `Kit.FileBrowser` and **returns** before reaching `findPendingRom` — at `:2765`, the plain-Linux
+  branch, since none of `HANDHELD/PORTMASTER/POKEPORT_HANDHELD/TRIMUI/MUOS/KNULLI` are set for a pak
+  (verified on a Brick, 2026-08-31). `findPendingRom` still exists but its other two callers are
+  Android-only: one behind `mobileFileBridge`, one inside `focus()`, which returns unless
+  `self.android`. So staging a dump imports nothing and duplicates 1-2 MiB per version.
+  `launch.sh` now hashes the player's dumps and logs each one's **path**, because the browser opens
+  at `/mnt/SDCARD` and the path is all that is still needed. It **never copies and never deletes** —
+  a dump at the save root cannot be told apart from one the player put there, so old staged copies
+  are reported as removable and left alone. `verify.sh` asserts the browser is still what the engine
+  opens, that `findPendingRom` still exists (so its return to reachability is noticed), and that
+  `launch.sh` neither copies nor deletes. Upstream fixed `#1274` in the same change — `findPendingRom`
+  gained a `wanted` argument — so "choose Red, import Blue" is gone.
+- **The ROM scan still matches folders the way NextUI does.** `getEmuName`
   (`workspace/all/common/utils.c:352`) takes the tag in a folder's *last* parentheses, or the whole
-  name when there are none — `Game Boy (GB)`, `Nintendo Game Boy (GB)` and `GB` are one system to the
-  frontend. `launch.sh` mirrors that rule. It used to hard-code two display names, which found
+  name when there are none — `Game Boy (GB)`, `Nintendo Game Boy (GB)` and `GB` are one system to
+  the frontend. `launch.sh` mirrors that rule. It used to hard-code two display names, which found
   nothing on a renamed folder and reported no error.
 - **An update cannot remove the v0.1.0 install, so `launch.sh` removes half of it.**
   `Roms/Gen1Recomp (Gen1Recomp)/` is deleted outright: everything in it came from this project, and

@@ -272,23 +272,36 @@ want_ident=$(jqlock '.contracts.love_identity')
 grep -q "$want_ident" "$PAK/game/conf.lua"
 check $? "LOVE identity is still '$want_ident' (our XDG_DATA_HOME layout depends on it)"
 
-# How the engine discovers a dump on Linux. Getting this wrong is invisible
-# off-device: the pak stages a ROM somewhere the engine never reads, and the game
-# just says "no ROM" with no error. It cost a device trip once already.
+# How the engine takes a dump from the player, and therefore what launch.sh may
+# claim. Getting this wrong is invisible off-device: the pak used to stage a ROM
+# where the engine no longer looks, and the game just says "no ROM".
 IMP="$PAK/game/src/import/RomImporter.lua"
-grep -q 'getDirectoryItems("")' "$IMP" 2>/dev/null
-check $? "the engine still scans the PhysFS root for a pending ROM"
 
+# The engine now opens its OWN file browser on Linux and returns before the
+# pending-ROM scan. That is why launch.sh reports paths instead of staging
+# copies -- see contracts.rom_discovery in upstream.lock.
+grep -q "$(jqlock '.contracts.rom_discovery.browser')" "$IMP" 2>/dev/null
+check $? "the engine still opens $(jqlock '.contracts.rom_discovery.browser') to choose a ROM"
+
+# The moment this stops being true, an unattended import becomes possible again
+# and the report-only scan should be revisited -- so it is asserted, not assumed.
+# findPendingRom is unreachable while the browser exists: the Choose flow returns
+# at the Kit.FileBrowser call above it (RomImporter.lua ~2765, plain-Linux
+# branch), and the engine's other two call sites are Android-gated.
 grep -q 'findPendingRom' "$IMP" 2>/dev/null
-check $? "findPendingRom still exists (the Linux fallback launch.sh relies on)"
+check $? "findPendingRom still exists upstream (unreachable on Linux, but watch it)"
 
-# If upstream ever ungates this, baseroms/ becomes viable and this note should be
-# revisited -- but until then, staging there is a silent no-op on Linux.
-grep -qE 'baseRomDiscovery[[:space:]]*=.*isUWP' "$IMP" 2>/dev/null
-check $? "baseroms/ discovery is still Xbox-only (so we must stage at the save root)"
+# launch.sh must not go back to copying dumps into the save dir: that imports
+# nothing now and duplicates 1-2 MiB per version.
+code_only | matches 'cp -f "[$]rom"' \
+    && bad "launch.sh copies dumps into the save dir again -- the engine no longer reads them" \
+    || ok "launch.sh does not stage dumps (the engine browses for them itself)"
 
-code_only | matches 'SAVEROOT'
-check $? "launch.sh stages ROMs at the save-dir root, not in a subfolder"
+# And it must not delete them either. A dump at the save root is
+# indistinguishable from one the player put there by hand.
+code_only | matches 'rm -f "[$]SAVEROOT"/[*][.]gb' \
+    && bad "launch.sh deletes dumps from the save dir -- they may be the player's own" \
+    || ok "launch.sh never deletes a dump from the save dir"
 
 code_only | matches 'baseroms' && bad "launch.sh still references baseroms/, which Linux never reads" || ok "launch.sh does not use the Xbox-only baseroms/ path"
 
