@@ -1,8 +1,8 @@
 {
     "name": "Gen1Recomp",
-    "version": "v0.4.4",
+    "version": "v0.4.5",
     "type": "TOOL",
-    "description": "Play Pokemon Red, Blue, Yellow and Silver -- and Gold, in beta -- in 3D natively on TrimUI handhelds using Gen1Recomp 0.2.43 and the Dramaless Shape voxel 3D mod. Needs your own US cartridge dump.",
+    "description": "Play Pokemon Red, Blue, Yellow and Silver -- and Gold, in beta -- in 3D natively on TrimUI handhelds using Gen1Recomp 0.2.56 and the Dramaless Shape voxel 3D mod. Needs your own US cartridge dump.",
     "author": "Carroarmato0",
     "repo_url": "https://github.com/carroarmato0/NextUI-Gen1Recomp-Pak",
     "release_filename": "Gen1Recomp.pak.zip",
@@ -14,6 +14,9 @@
         "tg5050"
     ],
     "changelog": {
+        "v0.4.5": [
+            "Updated to Gen1Recomp 0.2.56."
+        ],
         "v0.4.4": "Updates to Gen1Recomp 0.2.43 and adds Pokemon Silver. You must import your ROMs again: the engine rebuilds its decoded data, so your games look missing until you pick each one once more. Saves are safe. You now choose the ROM file yourself in the game's file browser. Smaller download, and the launcher puts CPU settings back on exit.",
         "v0.4.1": "Updates the engine to Gen1Recomp 0.1.98: a long run of fixes to Red, Blue, Yellow and Gold. Mods now run in a sandbox. Saves and imported ROMs untouched.",
         "v0.4.0": "Replaces the 3D voxel mod with Dramaless Shape, which this pak may legally redistribute. Download drops from 39 MB to 22 MB. 3D still needs Swap.pak, and is switched from the OPTIONS menu -- the mod's keyboard shortcuts do not work on a handheld.",

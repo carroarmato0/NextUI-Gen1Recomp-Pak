@@ -15,11 +15,11 @@
   ],
   "gen1recomp": {
     "repo": "bryanthaboi/gen1recomp",
-    "tag": "v0.2.43",
-    "version": "0.2.43",
-    "asset": "gen1recomp-0.2.43-rg34xxsp-stockos64-mod.zip",
-    "sha256": "814d29b1ad48579d16e58f3c2f918c9866db4f91504c11bf9f96fe58801de5b4",
-    "size": 14202846
+    "tag": "v0.2.56",
+    "version": "0.2.56",
+    "asset": "gen1recomp-0.2.56-rg34xxsp-stockos64-mod.zip",
+    "sha256": "5bc8e43717b28c85fccc781432e73725960aa37395cd34a33c2818cddd171b63",
+    "size": 14283263
   },
   "game_payload": {
     "_comment": [
@@ -41,9 +41,9 @@
       "it is the exact LOVE build upstream tested this game version against, and it is",
       "hash-pinned per file. Nothing here is compiled either way; the game is Lua."
     ],
-    "asset": "gen1recomp-0.2.43.love",
-    "sha256": "2929a98fb53931e342151517d956356d7ab4785d7ce7e0a89b9d58fddc84c94f",
-    "size": 8860799
+    "asset": "gen1recomp-0.2.56.love",
+    "sha256": "5999cedcbb278520eefeb28c62fd6a25845683d26aff0b1147f27d296a3cf7ae",
+    "size": 8943868
   },
   "love_runtime": {
     "version": "11.5",
