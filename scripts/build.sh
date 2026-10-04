@@ -164,24 +164,39 @@ fetch "https://github.com/$REPO/releases/download/$TAG/$GAME_ASSET" \
 
 # CA bundle. The device has no certificate store whatsoever, so without this every
 # HTTPS call the engine makes (mod index, update checks) dies with curl exit 60.
-CA_FILE="$CACHE/cacert.pem"
 if [ "$REFRESH_CA" = 1 ]; then
+  # Pin the newest DATED file, never curl.se/ca/cacert.pem: that URL is rolling, so
+  # a hash pinned against it breaks the day curl.se publishes a new bundle (see
+  # upstream.lock ca_bundle). The dated names are ISO dates, so sort -r is newest.
   say "refreshing the CA bundle"
+  ca_name="$(curl -fsL --connect-timeout 20 --max-time 120 \
+      https://curl.se/docs/caextract.html \
+    | grep -oE 'cacert-[0-9]{4}-[0-9]{2}-[0-9]{2}\.pem' | sort -ru | head -1)" \
+    || fail "could not list the dated CA bundles on curl.se"
+  [ -n "$ca_name" ] || fail "no dated CA bundle listed on https://curl.se/docs/caextract.html"
+  ca_url="https://curl.se/ca/$ca_name"
+  CA_FILE="$CACHE/$ca_name"
   rm -f "$CA_FILE"
   curl -fL --connect-timeout 20 --max-time 120 --progress-bar \
-    "$(jqlock '.ca_bundle.url')" -o "$CA_FILE" || fail "could not fetch the CA bundle"
+    "$ca_url" -o "$CA_FILE" || fail "could not fetch $ca_url"
   newsha="$(sha256sum "$CA_FILE" | cut -d' ' -f1)"
   # Repin the date as well as the hash. It is what the non-refresh path prints and
   # the only human-readable record of how old the roots are, so leaving it behind
-  # would make a fresh bundle look stale and a stale one look fresh.
-  newdate="$(sed -n 's/^## Certificate data from Mozilla as of: *//p' "$CA_FILE" | head -1)"
-  newdate="$(date -u -d "$newdate" +%Y-%m-%d 2>/dev/null || echo unknown)"
+  # would make a fresh bundle look stale and a stale one look fresh. It is taken from
+  # the file name, which verify.sh checks against, and cross-checked with the header.
+  newdate="${ca_name#cacert-}"; newdate="${newdate%.pem}"
+  hdrdate="$(sed -n 's/^## Certificate data from Mozilla as of: *//p' "$CA_FILE" | head -1)"
+  hdrdate="$(date -u -d "$hdrdate" +%Y-%m-%d 2>/dev/null || echo unknown)"
+  [ "$hdrdate" = "$newdate" ] \
+    || warn "$ca_name says Mozilla data as of $hdrdate in its header; pinning the file name's date"
   tmp="$LOCK.tmp"
-  jq --arg s "$newsha" --arg d "$newdate" \
-     '.ca_bundle.sha256=$s | .ca_bundle.mozilla_date=$d' "$LOCK" > "$tmp" && mv "$tmp" "$LOCK"
-  say "CA bundle repinned: $newsha (Mozilla $newdate)"
+  jq --arg u "$ca_url" --arg s "$newsha" --arg d "$newdate" \
+     '.ca_bundle.url=$u | .ca_bundle.sha256=$s | .ca_bundle.mozilla_date=$d' \
+     "$LOCK" > "$tmp" && mv "$tmp" "$LOCK"
+  say "CA bundle repinned: $ca_url $newsha"
   warn "Commit upstream.lock, and re-test HTTPS on a device before releasing."
 else
+  CA_FILE="$CACHE/$(basename "$(jqlock '.ca_bundle.url')")"
   fetch "$(jqlock '.ca_bundle.url')" "$CA_FILE" "$(jqlock '.ca_bundle.sha256')" \
         "CA bundle (Mozilla via curl.se, $(jqlock '.ca_bundle.mozilla_date'))"
 fi

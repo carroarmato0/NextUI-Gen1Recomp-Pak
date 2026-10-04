@@ -238,3 +238,43 @@ jobs:
             gh issue create --title "$title" --body-file /tmp/checklist.md \
               --label upstream-repin
           fi
+
+      # Anything that fails OUTSIDE the contract checks lands here. Before this step
+      # existed, such a failure only turned the run red: from 2026-09-25 build.sh died
+      # on a CA bundle hash every morning (its pin pointed at a URL whose content
+      # moves), and for nine days nothing was filed and upstream went unwatched.
+      # The contract path files its own issue, so it is excluded.
+      - name: Report a failed run
+        if: failure() && steps.verify.outcome != 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          sed "s|@RUN@|$run|g" .github/templates/watch-failure.md > /tmp/body.md
+          title="Upstream watch is failing before it reaches the contract checks"
+          gh label create upstream-watch-failure --color D93F0B --force \
+            --description "The single rolling report of the watcher itself failing" >/dev/null
+          open="$(gh issue list --label upstream-watch-failure --state open \
+            --json number -q '.[0].number // empty')"
+          if [ -n "$open" ]; then
+            gh issue edit "$open" --body-file /tmp/body.md
+            gh issue comment "$open" --body "Failed again: $run"
+          else
+            gh issue create --title "$title" --body-file /tmp/body.md \
+              --label upstream-watch-failure
+          fi
+
+      # And close it once a run gets all the way through, or it outlives the fault
+      # and stops meaning anything -- which is what happened to the contract issue.
+      - name: Close a resolved failure report
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for n in $(gh issue list --label upstream-watch-failure --state open \
+                       --json number -q '.[].number'); do
+            gh issue close "$n" --comment \
+              "Resolved: this run repinned to Gen1Recomp ${{ steps.build.outputs.upstream_version }} and got through every step."
+          done
