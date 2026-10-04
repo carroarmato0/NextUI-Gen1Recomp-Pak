@@ -84,10 +84,25 @@ wait_for_exit() {
     # NOT "press MENU": nothing on these devices intercepts MENU, so it does not
     # quit the game -- it arrives as an ordinary joystick button. Quitting is done
     # from Gen1Recomp's own launcher.
+    #
+    # The pak's own launch.sh counts as running too, not just love. launch.sh
+    # writes the log first and then hashes the player's dumps for several seconds
+    # BEFORE love starts, so "log exists, no love" is the middle of a launch, not
+    # the end of one. Polling love alone read that gap as an exit and graded a
+    # half-written log: no ROM or CPU lines, NextUI "not running", CPU "not
+    # restored" -- all on a Smart Pro S whose game was still starting (2026-10-04).
+    # launch.sh is also what restores the CPU state, after love has exited, so
+    # waiting for it means the restore has happened before it is graded.
+    #
+    # Found through /proc, not ps: the Brick's busybox 1.27 cuts ps at 80 columns,
+    # which drops the path, and takes only `w` to widen it, while the Smart Pro S's
+    # 1.35 rejects `w` and takes only `-o`. No ps invocation works on both. [G]
+    # keeps grep from matching its own command line.
     local waited=0 limit="${1:-180}"
+    local busy="pidof love.aarch64; grep -l '[G]en1Recomp.pak/launch.sh' /proc/[0-9]*/cmdline 2>/dev/null"
     printf '  running; quit from the game'"'"'s own launcher when done'
     while [ "$waited" -lt "$limit" ]; do
-        if adb shell 'pidof love.aarch64' 2>/dev/null | grep -qE '[0-9]'; then
+        if adb shell "$busy" 2>/dev/null | grep -qE '[0-9]'; then
             printf '.'; sleep 3; waited=$((waited+3))
         else
             printf ' exited\n'; return 0
@@ -299,9 +314,16 @@ else
 fi
 
 group "Frontend integration"
+# The frontend's launch loop restarts nextui.elf AFTER the pak's launch.sh has
+# returned, so checking the instant it exits races the loop. Give it a bounded
+# moment rather than failing a healthy device.
+fe_waited=0
+until adb shell 'pidof nextui.elf' 2>/dev/null | matches '[0-9]' || [ "$fe_waited" -ge 20 ]; do
+    sleep 2; fe_waited=$((fe_waited+2))
+done
 adb shell 'pidof nextui.elf' 2>/dev/null | matches '[0-9]' \
     && ok "the frontend relaunched after the game exited" \
-    || bad "nextui.elf is not running -- the launch loop did not recover"
+    || bad "nextui.elf is not running 20s after the game exited -- the launch loop did not recover"
 
 # The online mask is the part worth checking. NextUI's boot script offlines five
 # of the Smart Pro S's eight cores (skeleton/SYSTEM/tg5050/paks/MinUI.pak/launch.sh)

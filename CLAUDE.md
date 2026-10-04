@@ -419,6 +419,12 @@ the pak directory — a pak update would otherwise destroy them.
   `logtext()` must `tr -d '\r'`, because adb hands back CRLF and any exact string comparison fails
   on the stray CR while the regex checks quietly tolerate it — that produced a false mapping
   mismatch where the two strings were otherwise byte-identical.
+  **"Exited" means the pak's `launch.sh` is gone, not just `love.aarch64`.** `launch.sh` writes
+  the log, then hashes dumps for seconds before love starts; polling love alone graded a
+  half-written log on 2026-10-04 (no ROM/CPU lines, CPU "not restored", NextUI "not running" — all
+  false). It is found via `/proc/*/cmdline`: **no `ps` invocation works on both devices** — the
+  Brick's busybox 1.27 truncates at 80 columns and takes only `w`, the Smart Pro S's 1.35 rejects
+  `w` and takes only `-o`. Use `/proc` for any process-by-path test over ADB.
 - **The smoke test runs fine headlessly over ADB, which is more than the game manages.** Driven with
   `start-stop-daemon` while `verify-device.sh --smoke` waits, it reports renderer, window size,
   audio, joystick and mapping without anyone touching the device. Confirmed on a Brick:
