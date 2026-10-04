@@ -90,4 +90,4 @@ body:
         - label: Audio is clean — no pop on start, no crackle
         - label: It appears under Tools as "Gen1Recomp" and launches from there
         - label: Returning to NextUI after quitting works
-        - label: My ROM is a canonical US Red, Blue or Yellow dump
+        - label: My ROM is a canonical US Red, Blue, Yellow, Gold or Silver dump
