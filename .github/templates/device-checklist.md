@@ -28,13 +28,17 @@ DEPLOY_PLATFORM=tg5050 scripts/verify-device.sh
 - [ ] Re-run with `no-cpu-tuning` present in the state dir. If audio is still clean,
       **delete the CPU block from `launch.sh`** rather than keeping tuning that
       cannot be justified on stock NextUI
-- [ ] Voxel mod, with Swap.pak at 512 MB on **internal** storage and the boot hook
-      enabled: no OOM kill across a long session. **Record peak memory and frame rate**
 - [ ] The launcher's background video plays without stalling the menu (new in 0.3.x;
       the launcher settings turn it off as "Theme Video BG")
 - [ ] A game imported under an older engine still plays, or re-imports cleanly if
       the engine asks for it again (an engine update can invalidate the cache)
 - [ ] It appears under **Tools** as "Gen1Recomp" and launches from there
+
+### 3D voxel mod — experimental, not a release gate
+
+Record what you see; it goes in the README, but it does not block publishing. Enable **only** the bundled `DRAMALESS_SHAPE` — a catalogue voxel mod makes the run say nothing about the pak.
+
+- [ ] With Swap.pak at 512 MB on **internal** storage and the boot hook on, a few minutes of walking with 3D on ends without an OOM kill or a reboot. **Record peak RSS, lowest MemAvailable and peak swap**
 
 ### Before publishing
 
