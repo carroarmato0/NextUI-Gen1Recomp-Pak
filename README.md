@@ -117,7 +117,7 @@ Worth knowing: the same upstream change fixed a real annoyance. Picking a versio
 
 Gen1Recomp 0.2.x added **Silver and Crystal**. Silver is supported here as of v0.4.3. **Crystal is not**, and a Crystal dump on your card is ignored.
 
-The reason is mundane. These devices have no `sha1sum`, so the pak's ROM scan matches candidate dumps by **SHA-256** before copying them, while everything upstream publishes — `GameVersion.lua` and every `tools/rom_manifest_*.json` — is SHA-1. One cannot be derived from the other, so each version needs its SHA-256 taken from a real cartridge dump. Silver's was measured on a Brick against the owner's own dump, whose SHA-1 matched the engine's `silver` row exactly. No Crystal dump has been available to do the same with, and inventing a value would be worse than leaving it out: the scan would match nothing and say nothing, which is exactly how the Gold gap went unnoticed for two releases.
+The reason is mundane. These devices have no `sha1sum`, so the pak's ROM scan, which finds your dumps and logs their paths for the game's file browser, matches them by **SHA-256**, while everything upstream publishes — `GameVersion.lua` and every `tools/rom_manifest_*.json` — is SHA-1. One cannot be derived from the other, so each version needs its SHA-256 taken from a real cartridge dump. Silver's was measured on a Brick against the owner's own dump, whose SHA-1 matched the engine's `silver` row exactly. No Crystal dump has been available to do the same with, and inventing a value would be worse than leaving it out: the scan would match nothing and say nothing, which is exactly how the Gold gap went unnoticed for two releases.
 
 Everything else is unaffected.
 

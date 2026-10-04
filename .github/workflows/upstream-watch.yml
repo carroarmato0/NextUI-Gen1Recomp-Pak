@@ -145,7 +145,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          sed "s|@TAG@|${{ steps.build.outputs.upstream_tag }}|g" \
+          run="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          sed -e "s|@TAG@|${{ steps.build.outputs.upstream_tag }}|g" -e "s|@RUN@|$run|g" \
             .github/templates/contract-failure.md > /tmp/body.md
           title="Upstream ${{ steps.build.outputs.upstream_tag }} breaks a contract this pak depends on"
           # Rolling, like the rest: upstream releasing daily while a contract stays
@@ -163,6 +164,22 @@ jobs:
               --label upstream-contract
           fi
           exit 1
+
+      # A contract that passes again is fixed, so its report must go. Nothing used
+      # to close it: #12 ("v0.2.44 breaks a contract") stayed open for five weeks
+      # after every repin had started passing, listing suspects the pak had since
+      # removed.
+      - name: Close a resolved contract report
+        if: steps.verify.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for n in $(gh issue list --label upstream-contract --state open \
+                       --json number -q '.[].number'); do
+            gh issue close "$n" --comment \
+              "Resolved: ${{ steps.build.outputs.upstream_tag }} passes every contract check."
+          done
 
       - name: Package
         run: scripts/release.sh --skip-verify

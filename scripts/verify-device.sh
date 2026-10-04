@@ -262,12 +262,15 @@ else
     # report "no ROM handling in the log at all". Derive both, or it drifts again.
     rom_labels="$(sed -n '/^ROM_TABLE="/,/"$/p' "$ROOT/launch.sh" \
                   | sed -e 's/^ROM_TABLE="//' -e 's/"$//' | awk '{print $2}' | paste -sd'|' -)"
-    if printf '%s\n' "$GLOG" | matches "rom .*matched (${rom_labels})"; then
-        ok "a cartridge dump was found and staged (matched by SHA-256)"
-    elif printf '%s\n' "$GLOG" | matches 'rom .*(a dump for every version is staged|already imported)'; then
-        ok "a dump for every version is staged; the scan was skipped as intended"
-    elif printf '%s\n' "$GLOG" | matches 'rom .*no match found'; then
-        warn "no ROM matched -- put a US ${rom_labels%%|*} dump in any (GB)/(GBC) folder to test the import path"
+    # And again when launch.sh stopped staging and started only REPORTING paths:
+    # none of "matched", "already imported" or "no match found" is printed any
+    # more, so a healthy card failed this group. Match the lines it prints now.
+    if printf '%s\n' "$GLOG" | matches "^rom +(${rom_labels}) +->"; then
+        ok "a cartridge dump was found by SHA-256 and its path reported"
+    elif printf '%s\n' "$GLOG" | matches 'rom .*(no recognised dump found|no Game Boy folder found)'; then
+        warn "no ROM matched -- put a US ${rom_labels%%|*} dump in any (GB)/(GBC) folder to test the report"
+    elif printf '%s\n' "$GLOG" | matches 'rom .*sha256sum unavailable'; then
+        bad "launch.sh found no sha256sum on the device"
     else
         bad "no ROM handling in the log at all"
     fi
