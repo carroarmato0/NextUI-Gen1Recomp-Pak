@@ -10,7 +10,7 @@
 
 This is a [NextUI](https://github.com/LoveRetro/NextUI) pak that packages [Gen1Recomp](https://github.com/bryanthaboi/gen1recomp), a from-scratch recreation of the Generation 1 Pokémon games written in Lua on the LÖVE engine. It runs as native ARM64 code at your handheld's own resolution and frame rate, rather than emulating a Game Boy.
 
-> **Status: verified on a TrimUI Brick and a Smart Pro S.** The runtime, ROM import, 2D game, controller mapping and audio have all been exercised on real hardware. The Smart Pro and Brick Pro are untested. **The voxel mod changed in v0.4.0** and has been profiled on both devices: it renders fine, and it is **no lighter on memory** than the mod it replaced, so [Swap.pak](https://github.com/carroarmato0/NextUI-Swap-Pak) is still required — see [Tested on](#tested-on) and [Why the mod changed](#why-the-mod-changed).
+> **Status: verified on a TrimUI Brick and a Smart Pro S.** The runtime, ROM import, 2D game, controller mapping and audio have all been exercised on real hardware. The Smart Pro is untested, and the Brick Pro has one user report. **The voxel mod changed in v0.4.0** and has been profiled on both devices: it renders fine, and it is **no lighter on memory** than the mod it replaced, so [Swap.pak](https://github.com/carroarmato0/NextUI-Swap-Pak) is still required — see [Tested on](#tested-on) and [Why the mod changed](#why-the-mod-changed).
 
 ## What this is, and what it is not
 
@@ -370,7 +370,7 @@ Stated plainly, because these are structural rather than bugs, and knowing them 
 
 - **Only canonical US Red, Blue, Yellow and Gold are accepted.** Other regions, revisions and ROM hacks are refused by the engine, not by this pak.
 - **Gold is an upstream beta.** The launcher labels it `Gold (Beta)`. It is Generation 2 and still being worked on upstream — expect rough edges that are not this pak's to fix. Red, Blue and Yellow are unaffected by it.
-- **Two of four devices are untested.** The Smart Pro and Brick Pro share a platform with the Brick and are likely fine, but nobody has run them. See [Tested on](#tested-on).
+- **One of four devices is untested, and one rests on a user report.** The Smart Pro shares a platform with the Brick and is likely fine, but nobody has run it. The Brick Pro was run by a user on v0.4.0, not by us. See [Tested on](#tested-on).
 - **Updating from v0.1.0 deletes `Roms/Gen1Recomp (Gen1Recomp)/`, box art included.** That folder was entirely this project's doing and leaves a stale duplicate entry otherwise. The old pak under `Emus/` is left for you to remove. See [Upgrading from v0.1.0](#upgrading-from-v010).
 - **A `.love` file dropped in the state directory will run instead of the game**, but that is a diagnostics hook for the smoke test, not a feature. There is no per-game save isolation or controller profile behind it; this pak is Gen1Recomp-specific. Delete it to get the game back.
 - **The bundled CA certificate bundle is pinned and will age.** Roots expire, and a stale bundle fails exactly as silently as having none. Refresh with `scripts/build.sh --refresh-ca`, which pins the newest dated bundle from curl.se.
@@ -397,7 +397,8 @@ adb shell cat /mnt/SDCARD/.userdata/tg5050/logs/Gen1Recomp.txt
 | Game asks for a ROM you already have | `rom` lines: the scan reports every folder it searched, and says so explicitly when it found no Game Boy folder at all |
 | Audio crackles or distorts | `XRUN`. Try removing `no-cpu-tuning` from the state dir if you created it |
 | Killed during a voxel session | `SwapTotal` in the log. Set up Swap.pak as above |
-| A and B feel swapped | The controller GUID may differ on your unit — see [Contributing](#contributing) |
+| One short d-pad press slides you all the way to a wall | Not the controller. **OVERWORLD SPEED** is set above `NORMAL` — reset it in-game under `OPTIONS`, or in the launcher's settings. The setting wraps around, so one press left from `NORMAL` lands on `200X` and the next on `100X`. Reported on a Brick Pro, where it looked like a mapping fault |
+| A and B feel swapped | Check the mapping, not the GUID — see [Contributing](#contributing) |
 
 Two lines in the log look like errors and are not. `libz.so.1: no version information available` is a symbol-versioning notice from the firmware's zlib. `AL lib: (EE) mmap commit error: Broken pipe` appears a handful of times as OpenAL starts; a Brick session with ten of them had audio working normally throughout. Neither indicates a problem on its own.
 
@@ -409,7 +410,7 @@ Honest status. An untested device is listed as untested, not assumed to work.
 |---|---|---|---|
 | TrimUI Brick | `tg5040` | 1024×768 | **Runs.** GLES 3 context, ROM import, 2D game, voxel mod, controller mapping (A confirms) and audio all verified on hardware. Re-verified as a Tool pak on v0.2.0: launches from Tools, imports both Red and Blue out of an 89-ROM library, removes a v0.1.0 ROM folder without touching any of 1061 save files, and returns cleanly to the frontend. On v0.2.2, verified that the bundled libmpg123 fallback is correctly *not* used where the firmware ships its own. **Gold verified on v0.3.0.** Its import and decode were first confirmed on Gen1Recomp 0.1.79 with a dump staged by hand — complete cache in about a minute, memory never a concern (~677 MB free, LÖVE RSS ~71 MB) |
 | TrimUI Smart Pro | `tg5040` | 1280×720 | Not tested — same platform as the Brick, so likely fine, but unverified |
-| TrimUI Brick Pro | `tg5040` | 1024×768 | Not tested |
+| TrimUI Brick Pro | `tg5040` | 1024×768 | **Runs, by a user report on v0.4.0** ([#8](../../issues/8)), not by us. Launches from Tools, GLES 3.2 on PowerVR GE8300, ROM import and play, `DRAMALESS_SHAPE` 2.0.1 loads, smoke-test audio tone plays, A confirms. Reports the same controller GUID as the Brick with **16** buttons. Not yet seen: the live mapping string, a clean return to NextUI, and audio in game |
 | TrimUI Smart Pro S | `tg5050` | 1280×720 | **Runs.** Profiled with the voxel mod; needs swap. Audio verified. Yellow import verified end to end on hardware: a dump added after Red and Blue were already imported is picked up on the next launch and decoded (cache complete in ~50 s). **Gold's automatic import verified on v0.3.0 / Gen1Recomp 0.1.81**: the scan found a 2 MiB Gold dump in `Game Boy Color (GBC)/` unaided (`rom  matched Gold:` in the log), staged it, and the engine decoded it to `gold/rom-cache.complete` with 32 generated files |
 
 The runtime itself is known to work on this hardware class — the LÖVE 11.5 ARM64 build here is the same one shipped by [PortMaster](https://portmaster.games/), and [nx-redux](https://github.com/mohammadsyuhada/nx-redux) runs Gen1Recomp with the voxel mod on both platforms. What is untested is *this pak*.
@@ -420,7 +421,7 @@ The runtime itself is known to work on this hardware class — the LÖVE 11.5 AR
 
 **The CPU restore was measured on the Smart Pro S, and it is the device that needed it.** Through v0.4.3 the launcher never undid its own CPU changes at all. Measured across a full launch here: cores `0-1,4` before, `0-7` while running, back to `0-1,4` after; cluster ceilings 1320/2088 MHz raised to 1416/2160 and restored; the cpuset created with 20 tasks and removed on exit. NextUI resets governors and ceilings by itself but never re-offlines those five cores, so before the fix they stayed up for the rest of the session — invisible on a Brick, where all four cores are always online.
 
-Both devices report the same controller GUID and the same live mapping, but a **different button count** — 11 on the Smart Pro S against 15 on the Brick. The shipped mapping only reaches `b10`, so it fits both.
+Both devices report the same controller GUID and the same live mapping, but a **different button count** — 11 on the Smart Pro S against 15 on the Brick, and 16 on a user's Brick Pro. The shipped mapping only reaches `b10`, so it fits all three.
 
 **Both devices are now profiled on v0.4.0.** Brick: still GPU-bound (p75 96%, peak 100%), RSS around 440 MB, 3 MB of swap touched. Smart Pro S: 726 MB peak and paging in 9 of 30 samples, against the old mod's 722 MB and 22 of 30 — memory-bound and swap-thrashing, essentially unchanged. Swap remains a requirement, not a suggestion.
 
@@ -447,11 +448,11 @@ Needs `curl`, `jq`, `zip`, `unzip`, `sha256sum`, `readelf`, `ar`, `tar` and `pat
 
 ## Contributing
 
-The most useful thing you can contribute is a **device report** — especially on a **Smart Pro** or **Brick Pro**, neither of which has ever been run on hardware. There is an issue template for it, and "it just works" is as useful as a bug.
+The most useful thing you can contribute is a **device report** — especially on a **Smart Pro**, which has never been run on hardware, or a **Brick Pro**, which has one report. There is an issue template for it, and "it just works" is as useful as a bug.
 
 If you can, include `scripts/profile-device.sh 60` output. Everything this README claims about performance rests on one or two runs on one or two devices, so a second data point genuinely changes what it says.
 
-If A and B are swapped for you, the controller GUID in `launch.sh` is wrong for your unit — the smoke test prints the real one, and that is exactly the fix to send.
+If A and B are swapped for you, send the smoke test's `mapping 1:` line (v0.4.4 and later print it). It should read `TRIMUI Player1` with `a:b1,b:b0`; if it does not, the pak's mapping is not reaching your unit, and that line is the fix. **Do not compare GUIDs.** Your unit reports something like `0300a384…` while `launch.sh` ships `03000000…`, and that is expected: SDL 2.0.18+ writes a checksum of the device name into bytes 2–3 and falls back to matching with them zeroed, so the shipped mapping still applies. The Brick, Smart Pro S and Brick Pro all report the same GUID.
 
 ## Credits and licences
 
