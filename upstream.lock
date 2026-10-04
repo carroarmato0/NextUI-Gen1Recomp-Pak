@@ -412,9 +412,16 @@
       "Mozilla's bundle as republished by the curl project. Pinned for reproducibility,",
       "so refreshing it is a deliberate act: run scripts/build.sh --refresh-ca, check the",
       "new hash in, and note that roots do expire -- a stale bundle fails closed and",
-      "silently, exactly like having none."
+      "silently, exactly like having none.",
+      "",
+      "THE URL MUST BE A DATED FILE, never curl.se/ca/cacert.pem. That one is rolling:",
+      "curl.se replaced it with the 2026-09-25 bundle, the pinned hash stopped matching,",
+      "and build.sh failed before reaching anything upstream-related -- so the daily",
+      "watcher went red every day from 2026-09-25 to 2026-10-04 without filing a word.",
+      "The dated files are immutable; --refresh-ca picks the newest one and verify.sh",
+      "rejects an undated URL."
     ],
-    "url": "https://curl.se/ca/cacert.pem",
+    "url": "https://curl.se/ca/cacert-2026-08-13.pem",
     "sha256": "f66dff1bdf8f96060b8177976f8b7d9254bc89bc4db933d769f7384d28480bc9",
     "mozilla_date": "2026-08-13",
     "install_path": "assets/ca-certificates.crt"

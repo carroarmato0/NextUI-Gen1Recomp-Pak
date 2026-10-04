@@ -244,6 +244,14 @@ CA="$PAK/$(jqlock '.ca_bundle.install_path')"
 [ -f "$CA" ]
 check $? "a CA bundle is shipped ($(jqlock '.ca_bundle.install_path'))"
 
+# A hash pinned against the rolling curl.se/ca/cacert.pem breaks the day curl.se
+# publishes a new bundle, and that took the upstream watcher down for nine days.
+# The date in the name must also be the one the build prints as the roots' age.
+ca_url="$(jqlock '.ca_bundle.url')"
+printf '%s\n' "$ca_url" \
+  | matches "^https://curl[.]se/ca/cacert-$(jqlock '.ca_bundle.mozilla_date')[.]pem$"
+check $? "the CA bundle is pinned to an immutable dated file matching mozilla_date ($ca_url)"
+
 certs=$(grep -c 'BEGIN CERTIFICATE' "$CA" 2>/dev/null || echo 0)
 [ "$certs" -gt 50 ]
 check $? "the CA bundle holds a plausible number of roots ($certs)"

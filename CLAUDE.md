@@ -287,6 +287,12 @@ the pak directory — a pak update would otherwise destroy them.
   check with no mention of certificates. The pak ships `assets/ca-certificates.crt` and exports
   `CURL_CA_BUNDLE` + `SSL_CERT_FILE`. The bundle is pinned; refresh with
   `scripts/build.sh --refresh-ca`, since roots expire and a stale bundle fails the same silent way.
+  **The pin must name a dated file (`cacert-YYYY-MM-DD.pem`), never `curl.se/ca/cacert.pem`.**
+  The undated URL always serves the newest bundle. When curl.se published 2026-09-25 the pinned
+  hash stopped matching. `build.sh` then died before reaching anything upstream, and the watcher
+  went red every day until 2026-10-04 without filing a word, while upstream moved 0.3.6 → 0.3.51.
+  `--refresh-ca` now pins the newest dated file, `verify.sh` rejects an undated URL, and the
+  watcher files an `upstream-watch-failure` issue for any failure outside the contract checks.
 - **`DRAMALESS_SHAPE` is measured on both devices, and it is NOT lighter than the mod it replaced.**
   Do not repeat the "halves its render scale, so its ceiling is probably lower" guess — it was
   tested and it is wrong. Measured 2026-08-14, v0.4.0, voxel on:
