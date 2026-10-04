@@ -229,6 +229,41 @@ the pak directory — a pak update would otherwise destroy them.
   presets and the tier rule above means this hardware never enters that path; it took the pak from
   22 MB to 37 MB and stripping puts it at 29 MB. `build.sh` copies **all** of `libs.aarch64/` and
   then removes by name — never an allowlist copy, or the next new dependency becomes invisible.
+- **0.3.x took the pak from 29 MB to 70 MB, and only 14 MB of that was removable.** The engine
+  gained GBA games (FireRed, LeafGreen, Emerald: `src/import/gba/`, `src/core/game3/`) and
+  launcher videos. It also began shipping the layered Photoshop sources of the cartridge labels,
+  `assets/labels/gblabels.psd` (10 MB) and `gbalabels.psd` (3.6 MB). Nothing loads a `.psd`:
+  every label path the engine builds ends in `.png`, including the dynamic ones
+  (`LauncherView.lua`, `WebClip.lua`). `build.sh` deletes every `.psd` **by extension**, and
+  `verify.sh` asserts that none ships and that no `.lua`/`.json` names one — if that second half
+  ever fails, the strip is breaking the game and must go. Nothing caps the pak's size; a jump this
+  large is found by reading the `size` line `build.sh` prints, so read it on every repin.
+- **Audited 0.2.43 → 0.3.51 (2026-10-04) for what `verify.sh` cannot see; nothing broke.** Recorded
+  so the next audit does not redo these:
+  - **The voxel mod still fits:** all 4 hook points (`input.step`, `pokemon.sprite`,
+    `ui.options.rows`, `world.tod`) and all 9 events it listens for still exist. The mod sandbox
+    was refactored to cache its verdicts, not changed. `engine_internals` remains warn-only and
+    dev-mode.
+  - **`io.popen("sha1sum …")` in `src/import/gba/cli_extract.lua` is not a runtime dependency.**
+    It is an offline developer CLI that nothing in the game requires.
+  - **GBA code reads `$HOME`, but only as a fallback** after `love.filesystem.getSaveDirectory()`,
+    so the `XDG_DATA_HOME` layout holds. `SaveSerializer.lua` is byte-identical, so the
+    `options.lua` seed is unaffected.
+  - **`autoUpdateMods` at launcher start runs only when the launch request sets
+    `updateMods`.** A plain NextUI launch does not, so there is no new network call at boot.
+  - **Launcher theme video (`current_theme_vid.ogv`, Theora) is ON by default** (`themeVideoBg`
+    unset ≠ `false`), with a "Theme Video BG" toggle in the launcher settings. Its CPU cost on an
+    A53 is unmeasured, and it is on the device checklist.
+  - **`launch.sh`'s ROM report does not list `.gba` dumps.** It scans `(GB)`/`(GBC)` folders and
+    the 1/2 MiB sizes only. The engine's own browser may still import FireRed/LeafGreen/Emerald and
+    Crystal, but none of that has been tried on hardware, and a GBA game's memory on a 1 GB device
+    is unknown. Say "untested", not "unsupported".
+- **`verify-device.sh` graded ROM handling on log lines `launch.sh` no longer prints.** It looked
+  for `matched`, `already imported` and `no match found`. All three went when the pak stopped
+  staging dumps, so a healthy card failed that group with "no ROM handling in the log at all". It
+  now matches `rom  <Label>  ->  <path>`, which `test/test-launch.sh` asserts too. **When a log line
+  in `launch.sh` changes, grep `verify-device.sh` for it** — that script is the only consumer, and
+  it only runs on hardware.
 - **An engine update can invalidate the ROM cache, and the import gate must NOT track that.**
   `CacheContract.isReady()` = the marker matches **and** `allRequiredFilesExist()`. Upstream grows
   `CacheContract.REQUIRED_FILES` between releases — 0.2.x added entries deliberately, one commented
@@ -293,6 +328,9 @@ the pak directory — a pak update would otherwise destroy them.
   went red every day until 2026-10-04 without filing a word, while upstream moved 0.3.6 → 0.3.51.
   `--refresh-ca` now pins the newest dated file, `verify.sh` rejects an undated URL, and the
   watcher files an `upstream-watch-failure` issue for any failure outside the contract checks.
+  **Both rolling reports close themselves**: the failure report after a run that gets all the way
+  through, the `upstream-contract` report after a repin that passes `verify.sh`. Before that, #12
+  stayed open for five weeks after every repin had started passing.
 - **`DRAMALESS_SHAPE` is measured on both devices, and it is NOT lighter than the mod it replaced.**
   Do not repeat the "halves its render scale, so its ceiling is probably lower" guess — it was
   tested and it is wrong. Measured 2026-08-14, v0.4.0, voxel on:

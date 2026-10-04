@@ -14,8 +14,8 @@ DEPLOY_PLATFORM=tg5050 scripts/verify-device.sh
 - [ ] Window is the panel's native resolution (1280×720, or 1024×768 on Brick)
 - [ ] Audio initialised, and no XRUN/underruns in the log
 - [ ] Controller GUID matches the mapping shipped in `launch.sh`
-- [ ] ROM found and staged by SHA-256, from whichever (GB)/(GBC) folder holds it;
-      the rescan is skipped on relaunch
+- [ ] ROM found by SHA-256 in whichever (GB)/(GBC) folder holds it, and its path
+      logged for the game's Choose ROM browser
 - [ ] CPU state matches before/after — especially which cores are online
 - [ ] Saves land in `.userdata/shared/Gen1Recomp`, and no `portable.txt` is in the payload
 - [ ] The frontend relaunched cleanly after the game exited
@@ -30,6 +30,10 @@ DEPLOY_PLATFORM=tg5050 scripts/verify-device.sh
       cannot be justified on stock NextUI
 - [ ] Voxel mod, with Swap.pak at 512 MB on **internal** storage and the boot hook
       enabled: no OOM kill across a long session. **Record peak memory and frame rate**
+- [ ] The launcher's background video plays without stalling the menu (new in 0.3.x;
+      the launcher settings turn it off as "Theme Video BG")
+- [ ] A game imported under an older engine still plays, or re-imports cleanly if
+      the engine asks for it again (an engine update can invalidate the cache)
 - [ ] It appears under **Tools** as "Gen1Recomp" and launches from there
 
 ### Before publishing

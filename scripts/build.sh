@@ -303,6 +303,15 @@ unzip -q -o "$GAME_LOVE" -d "$PAK/game" || fail "could not unpack $GAME_ASSET"
 # against upstream adding it; verify.sh asserts the result independently.
 rm -f "$PAK/game/portable.txt"
 
+# Photoshop sources. 0.3.x ships the layered originals of the cartridge labels
+# (gblabels.psd 10 MB, gbalabels.psd 3.6 MB) beside the PNGs exported from them.
+# Nothing loads them: every label path the engine builds ends in .png. They were
+# 14 MB of a pak that went from 29 MB to 70 MB in one repin. By extension, not by
+# name, so a new one is caught too; verify.sh asserts nothing references one.
+while IFS= read -r psd; do
+  rm -f "$psd" && say "stripped ${psd#"$PAK/"} (Photoshop source; nothing loads it)"
+done < <(find "$PAK/game" -type f -iname '*.psd')
+
 # Never ship ROM-derived data. Upstream already excludes it, so finding any here
 # means something changed and a human should look before we publish.
 for gen in "$PAK/game/data/generated" "$PAK/game/assets/generated"; do

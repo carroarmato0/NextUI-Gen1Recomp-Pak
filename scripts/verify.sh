@@ -202,6 +202,12 @@ check $? "game/main.lua and game/conf.lua are present"
 [ ! -f "$PAK/game/portable.txt" ]
 check $? "game/portable.txt is absent (else a pak update would delete every save)"
 
+# build.sh deletes every .psd on the grounds that nothing loads one. If the engine
+# ever names one, that ground is gone and the strip would break the game.
+[ -z "$(find "$PAK/game" -type f -iname '*.psd' | head -1)" ] \
+  && ! grep -rqiE '[.]psd["'"'"']' --include='*.lua' --include='*.json' "$PAK/game"
+check $? "no Photoshop source ships, and no engine code names one"
+
 [ ! -e "$PAK/game/data/generated" ] && [ ! -e "$PAK/game/assets/generated" ]
 check $? "no ROM-derived generated data in the payload"
 
