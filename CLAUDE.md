@@ -10,6 +10,14 @@ arguments** — `verify.sh` fails if it reads `$1`.
 
 ## Critical constraints
 
+- **Scope: the 2D game is supported; 3D is experimental on every device.** Decided 2026-10-04,
+  after the maintainer asked whether the Brick was worth supporting at all. The answer was to cut
+  the 3D *promise*, not a device: one binary, one `launch.sh` and one payload serve both platforms,
+  and dropping the Brick means dropping all of `tg5040` (Smart Pro, Brick Pro) and silently
+  stranding its installed users in the Pak Store. The voxel mod's long-session memory test is
+  therefore **not a release gate** — the 14-check `verify-device.sh` run plus audio/controls is.
+  Catalogue voxel mods are unsupported; a device report with one enabled says nothing about the pak.
+
 - **No compiler.** There is nothing to build. The game is Lua, so upstream's `.love` already *is*
   the from-source build; `scripts/build.sh` downloads two pinned upstream artifacts — the `.love`
   for the game and the port zip for the LOVE runtime — and rearranges them. Do not add a
@@ -344,6 +352,24 @@ the pak directory — a pak update would otherwise destroy them.
     comparison — do not sell it as a 23-point win. RSS is not monotonic: it fell to 75 MB
     mid-session (mesh eviction), though that coincided with a voxel-level change.
   - The two devices fail differently: Brick is GPU-bound, Smart Pro S is memory-bound. Same mod.
+  - **Re-measured on a Brick, 2026-10-04, v0.4.5 / engine 0.3.51: the Brick is memory-bound now
+    too.** 4 min of 3D walking: RSS 153 → **602 MB**, MemAvailable down to **9 MB**, swap peak
+    **241 MB** (279 MB out, 108 MB in), 9 of 111 samples in `D`, clean exit. Unattributed — engine,
+    mod copy (the save dir held a catalogue 2.0.4 beside our 2.0.3) and route all differ from August.
+- **PotatoVoxel 1.9.6 hard-rebooted a Brick (2026-10-04), and the cause is thrashing, not swap
+  size.** Its map-cache prebuild hit **733 MB RSS within a minute at map 1/444**; over ten minutes
+  **4.8 GB went out to swap and 3.7 GB came back**, love in `D` in 126 of 259 samples. Swap peaked at
+  850 MB of 1 GB — **it never filled, so a bigger swap file would not help**; do not recommend one.
+  The kernel's pstore shows **no OOM kill**: it ends `watchdog did not stop!` / `Attempted to kill
+  init!` from `procd`, i.e. the system stalled until init died. Unsupported mod, not a pak defect.
+- **To measure memory across a possible crash, sample to the SD card and `sync` every line.** `/tmp`
+  is tmpfs and dies with the reboot you are trying to explain, and `profile-device.sh` runs on the
+  host, so its record ends when ADB does. A tiny `/proc/meminfo` + `/proc/vmstat` + love's
+  `/proc/<pid>/status` loop, started with `start-stop-daemon -S -b`, survived the Brick's hard reboot.
+  The Brick's busybox `date +%H:%M:%S` came out garbled in that loop; `date +%s` did not. And
+  `start-stop-daemon -K -x script.sh` cannot stop it — the process is `/bin/sh` — so kill by PID.
+  The pstore records (`/sys/fs/pstore/dmesg-pstore_blk-*`) survive the reboot as well: pull them
+  before anything else.
 - **`profile-device.sh`'s first sample is garbage.** The GPU counter has no previous delta to
   difference against, so row one reported 649% here while reading 0% CPU. Discard it; it poisons the
   reported peak.

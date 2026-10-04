@@ -10,7 +10,7 @@
 
 This is a [NextUI](https://github.com/LoveRetro/NextUI) pak that packages [Gen1Recomp](https://github.com/bryanthaboi/gen1recomp), a from-scratch recreation of the Generation 1 Pokémon games written in Lua on the LÖVE engine. It runs as native ARM64 code at your handheld's own resolution and frame rate, rather than emulating a Game Boy.
 
-> **Status: verified on a TrimUI Brick and a Smart Pro S.** The runtime, ROM import, 2D game, controller mapping and audio have all been exercised on real hardware. The Smart Pro is untested, and the Brick Pro has one user report. **The voxel mod changed in v0.4.0** and has been profiled on both devices: it renders fine, and it is **no lighter on memory** than the mod it replaced, so [Swap.pak](https://github.com/carroarmato0/NextUI-Swap-Pak) is still required — see [Tested on](#tested-on) and [Why the mod changed](#why-the-mod-changed).
+> **Status: the 2D game is supported; 3D is experimental.** The runtime, ROM import, 2D game, controller mapping and audio are verified on a TrimUI Brick and a Smart Pro S, most recently on v0.4.5. The Smart Pro is untested, and the Brick Pro has one user report. **The 3D voxel mod is bundled but experimental on every device:** it runs, but it fills a 1 GB handheld's memory and needs [Swap.pak](https://github.com/carroarmato0/NextUI-Swap-Pak) on both platforms — see [3D voxel mod](#3d-voxel-mod) and [Tested on](#tested-on).
 
 ## What this is, and what it is not
 
@@ -29,7 +29,7 @@ Credit for the game itself belongs entirely upstream. This repository is packagi
 
 - **NextUI** on a TrimUI device — `tg5040` (Brick, Smart Pro, Brick Pro) or `tg5050` (Smart Pro S)
 - **Your own US Red, Blue, Yellow, Gold or Silver cartridge dump.** Only the canonical US ROMs are accepted — the three 1 MiB Gen 1 carts and the 2 MiB Gen 2 ones; the engine verifies by SHA-1 and refuses anything else. **Crystal** is declared by the engine but not supported here yet — see [Crystal](#crystal)
-- ~29 MB of card space, or ~27 MB if you build without the 3D mod
+- ~57 MB of card space, or ~55 MB if you build without the 3D mod. The download is a 23 MB zip
 - For the 3D voxel mod: [Swap.pak](https://github.com/carroarmato0/NextUI-Swap-Pak). See [3D voxel mod](#3d-voxel-mod)
 
 ## Install
@@ -65,15 +65,16 @@ Deleting the ROM folder already removes the stale entry, so this is only disk sp
 
 **Your saves are not affected.** They have always lived in `.userdata/shared/Gen1Recomp/`, which none of this touches.
 
-## Updating from v0.4.1 or earlier: you will re-import
+## After an update: you may have to re-import
 
 **Your games will look like they have vanished. They have not, and your save files are safe.**
 
-Gen1Recomp 0.2.x needs more data out of a cartridge than earlier versions did — upstream added entries to its cache contract (`CacheContract.REQUIRED_FILES`), including one specifically so that caches built before a Gen 2 text extractor get rebuilt. The decoded copy the engine made from your dump is therefore incomplete, `CacheContract.isReady()` goes false, and the version reappears on the launcher asking to be imported.
+The engine keeps a decoded copy of each cartridge, and an engine update can change what that copy must contain. When it does, the version reappears on the launcher asking to be imported. Only the decoded copy is rebuilt; the `saves/` folder is never touched.
 
-Only that decoded copy is rebuilt. Measured on a Brick upgrading 0.1.98 → 0.2.43: Blue was short 2 required files, Yellow 4, Gold 9, and the `saves/` folder was untouched throughout.
+- **Updating to v0.4.5 (Gen1Recomp 0.3.51): every version re-imports once.** The cache format changed for all of them: Gen 1 from `rom-cache-v10` to `v12-gen1`, Yellow to `v12-yellow2`, Gold and Silver from `v11` to `v13`. Confirmed on a Brick: Red and Yellow were rebuilt, and the rest still carried the old markers until picked.
+- **Updating from v0.4.1 or earlier:** 0.2.x added files to the contract (`CacheContract.REQUIRED_FILES`). Measured on a Brick upgrading 0.1.98 → 0.2.43: Blue was short 2 required files, Yellow 4, Gold 9.
 
-Pick each version once on the Choose ROM screen and it comes back. Your dumps are still staged where the pak put them, so nothing is copied again and the rebuild takes about a minute per version. The launcher imports one version per visit, so expect to do it once per game you own.
+Pick each version once on the Choose ROM screen and browse to your dump; the [log tells you where it is](#first-run-your-rom). The rebuild takes about a minute per version, once per game you own.
 
 ## First run: your ROM
 
@@ -125,6 +126,8 @@ Everything else is unaffected.
 
 The 3D look most people associate with Gen1Recomp is **not** part of the game — it comes from a separate, experimental mod, which replaces the flat overworld with a voxel one and adds camera depth, shadows and 3D battle presentation.
 
+> **Experimental on every device, and that is a scoping decision, not a disclaimer.** Both supported platforms have 1 GB of RAM, and a 3D session fills it: measured on v0.4.5, a Brick dropped to **9 MB** available with **241 MB** swapped out after four minutes of walking. It runs, it is not smooth, and it needs [Swap.pak](https://github.com/carroarmato0/NextUI-Swap-Pak) on **both** platforms. The 2D game is what this pak supports; the bundled mod is offered as-is, off until you turn it on, and is not a release gate. **Other voxel mods from the catalogue are unsupported** — see [Other voxel mods](#other-voxel-mods).
+
 Since v0.4.0 that mod is **[Dramaless Shape](https://github.com/artyrambles/DRAMALESS_SHAPE)**, bundled at **2.0.3** as of v0.4.4. Note that every performance figure below was measured against **2.0.1**, the version bundled through v0.4.3 — 2.0.3 has not been profiled on either device, and its author described the intervening 2.0.2 as slightly slower, so treat the numbers as indicative of the mod in general rather than of this exact build. Step the **VOXEL** row on the in-game OPTIONS menu to turn the 3D world on.
 
 ### Why the mod changed
@@ -170,6 +173,18 @@ Note the shape of the load differs from the Brick: here the GPU sits at 85% with
 Memory is **not monotonic**: RSS fell from ~410 MB back to 75 MB inside a single session, which is the mod's per-map mesh eviction doing its job. That drop coincided with the player changing the voxel level, though, so it is not clean evidence of eviction under plain walking.
 
 This window did not establish a ceiling — RSS was still climbing when it closed, and on the Brick the old mod peaked at a comparable 386 MB. Between the two devices the picture is consistent: the new mod is not measurably lighter than the one it replaced.
+
+**Brick, v0.4.5 (Gen1Recomp 0.3.51), Dramaless Shape**, four minutes of walking with 3D on, sampled every 2 s:
+
+| | Measured |
+|---|---|
+| LÖVE RSS | 153 MB at launch → **602 MB peak** |
+| MemAvailable at worst | **9 MB** of 998 MB |
+| Swap used, peak | **241 MB** of 1 GB; 279 MB written out, 108 MB read back |
+| Samples waiting on disk | 9 of 111 |
+| Outcome | quit cleanly, no reboot |
+
+**The Brick now needs swap too.** In August it peaked at ~440 MB and barely touched swap; here it went 160 MB further in a shorter session. One run cannot say whether the engine (0.1.98 → 0.3.51), the mod (2.0.3 or a newer catalogue copy) or the route is responsible.
 
 Measured across a session on a Smart Pro S (962 MB RAM), **DramaticShapeVoxelMod 1.7.2** on:
 
@@ -303,6 +318,24 @@ Nothing is copied by the pak itself, deliberately. A mod already installed under
 
 The usual caution applies and is not reduced by installing this way: a mod is code from a stranger, running with access to your save data. Note also that a mod installed by hand is **not** the bundled voxel mod — if you hand-install Dramaless yourself, you get the released version, which is missing the fix described under [The voxel mod](#the-voxel-mod).
 
+### Other voxel mods
+
+**Unsupported.** The catalogue has several (`potato_voxel`, `BATTLE_ART_VOXEL_FORK`, `DRAMATIC_SHAPE`), and you can install them, but problems they cause are not this pak's to fix, and device reports with one enabled cannot be used to judge the pak.
+
+One measurement worth knowing before you try. **PotatoVoxel 1.9.6 crashed a Brick** on v0.4.5, while building its map cache:
+
+| | PotatoVoxel 1.9.6 | Dramaless Shape (bundled) |
+|---|---|---|
+| LÖVE peak RSS | **733 MB**, within a minute, at map 1 of 444 | 602 MB |
+| Peak swap used | 850 MB of 1 GB | 241 MB |
+| Written to / read back from swap | **4.8 GB / 3.7 GB** in ten minutes | 279 MB / 108 MB |
+| Samples waiting on disk | **126 of 259** | 9 of 111 |
+| Outcome | audio stutter, frozen progress, then a hard reboot | quit cleanly |
+
+That is thrashing: the prebuild's working set is larger than RAM, so the same pages go out to swap and come straight back. **A bigger swap file would not help** — it never filled — and the reboot came from the system stalling, not from running out of memory. It is the mod's to fix. Each hard reboot risks your SD card mid-write, and your saves are on it.
+
+Enable one voxel mod at a time. Two at once compete for the same memory, and some declare conflicts that silently disable one of them.
+
 ### The catalogue lists the mod this pak removed
 
 `DRAMATIC_SHAPE` is in there, at **1.8.2** — newer than the 1.7.2 v0.3.0 shipped. It is the same mod: same id, same `github` field pointing at the deleted original, and **196 of its 222 files are byte-identical** to the copy this pak used to bundle. It is hosted by a preservation mirror rather than its author.
@@ -348,7 +381,7 @@ Stated plainly, because these are structural rather than bugs, and knowing them 
 
 - **MENU does not quit the game.** NextUI does not intercept MENU for standalone applications, so it arrives as an ordinary button. Quit through Gen1Recomp's own launcher.
 - **Sleep does not work.** All power handling lives inside the NextUI frontend, which has exited while the game runs. Brightness and volume *do* keep working — a background daemon handles those.
-- **Shader presets are unavailable, and that is the engine's decision, not ours.** Gen1Recomp 0.2.x replaced its old GBC FX option with libretro slang-shader presets. `Performance.detect()` resolves ARM Linux handhelds to the `low` tier, whose caps set `shaderfx = false` — a hard off, checked before any preset is looked at. Because nothing on this hardware can reach that code path, the pak does not ship the 8.4 MB `liblibrashader_bridge.so` that only exists to translate presets; that keeps the download at ~29 MB rather than ~37 MB. If you force PERFORMANCE to HIGH and supply your own presets, preset conversion fails gracefully — a logged `ffi.load` failure and no shader, not a crash — and you can point `LIBRASHADER_BRIDGE_DLL` at your own build of the bridge.
+- **Shader presets are unavailable, and that is the engine's decision, not ours.** Gen1Recomp 0.2.x replaced its old GBC FX option with libretro slang-shader presets. `Performance.detect()` resolves ARM Linux handhelds to the `low` tier, whose caps set `shaderfx = false` — a hard off, checked before any preset is looked at. Because nothing on this hardware can reach that code path, the pak does not ship the 8.4 MB `liblibrashader_bridge.so` that only exists to translate presets; that keeps the pak at ~57 MB rather than ~65 MB. If you force PERFORMANCE to HIGH and supply your own presets, preset conversion fails gracefully — a logged `ffi.load` failure and no shader, not a crash — and you can point `LIBRASHADER_BRIDGE_DLL` at your own build of the bridge.
 - **The pak changes CPU state while running.** It brings all cores online, raises cluster frequency ceilings, and on big.LITTLE hardware pins LÖVE to the big cluster. Governor, ceilings, floors and which cores are online are all recorded at launch and put back on exit. The online mask is the one that matters: NextUI offlines five of the Smart Pro S's eight cores at boot and never repeats it, so a core left up by this pak would stay up for the rest of your session. **Through v0.4.1 none of it was actually put back** — the launcher handed the process over to the game in a way that discarded its own cleanup step, which v0.4.3 fixes; measured on a Brick, the frequency ceiling now returns to where it started. Create `no-cpu-tuning` in the state dir to disable.
 
 ### The voxel mod
@@ -356,7 +389,7 @@ Stated plainly, because these are structural rather than bugs, and knowing them 
 - **Its hotkeys do not work on a handheld — use the OPTIONS menu.** Every shortcut the mod defines is a letter key (`v` voxel, `g` grid, `t` tilt-shift, `c` curve) bound to the keyboard only; there is no gamepad binding anywhere in it. The mod this replaced bound **SELECT** to step the voxel ladder precisely because pads have no number row, and Dramaless dropped that. Nothing is unreachable — every hotkey is also a row on the OPTIONS menu — but it is two more button presses than it used to be. Confirmed on a Brick.
 - **It is not smooth on a Brick, and no setting fixes that.** Measured on v0.4.0: GPU p75 96%, peak 100% while rendering. There is no userspace clock control on this PowerVR part, so the only lever is drawing less — lower RENDER DIST, or set WATER to OFF, which the mod's author calls the biggest single win.
 - **Swapping the mod did not reduce memory use.** Measured on v0.4.0: 726 MB peak on a Smart Pro S against the old mod's 722 MB, paging in 9 of 30 samples. Dramaless halves its render scale by default and drops the VR and Stadium payloads, but the voxel working set is what fills a 1 GB device, and that has not changed.
-- **It needs swap, and the new mod did not change that.** Measured on v0.4.0: 726 MB peak on a Smart Pro S with active paging, against the old mod's 722 MB. Without [Swap.pak](https://github.com/carroarmato0/NextUI-Swap-Pak) the session is OOM-killed. The Brick is easier on memory (~440 MB, 3 MB of swap touched) but is GPU-bound instead. The 2D game runs comfortably on both.
+- **It needs swap on both platforms.** Measured on v0.4.0: 726 MB peak on a Smart Pro S with active paging. Measured on v0.4.5: 602 MB peak on a Brick, 9 MB available at worst and 241 MB swapped out — the Brick was easier on memory in August, and is not any more. Without [Swap.pak](https://github.com/carroarmato0/NextUI-Swap-Pak) a session can be OOM-killed. The 2D game runs comfortably on both.
 - **No Stadium models, 3D battle modes, VR or voxel characters.** Dramaless 2.0 dropped all of them; see [What you gain and lose](#what-you-gain-and-lose).
 - **The mod releases faster than this pak does.** Expect the in-game update check to offer a newer version than the bundled one.
 - **The bundled copy carries a fix that the released mod does not.** Gen1Recomp deleted `src/render/GBCFX.lua` after 0.2.20, and Dramaless still requires it in two places — one of them looks guarded but is not, because the `pcall` wraps the call rather than the `require`. Unpatched, that throws inside the mod's OPTIONS hook, the engine logs-and-skips the whole hook, and the mod's rows vanish from OPTIONS with nothing on screen to say why — which, given the hotkeys are keyboard-only, leaves no way at all to reach the 3D toggle on a handheld. The pak patches both call sites at build time (`patches/DRAMALESS_SHAPE-gbcfx.patch`). Reported as [DRAMALESS_SHAPE#53](https://github.com/artyrambles/DRAMALESS_SHAPE/issues/53); the patch is deleted, not carried, once a mod release fixes it. **If you install Dramaless yourself from the in-game mod manager, you get the unpatched version** and the OPTIONS rows will be missing.
@@ -416,6 +449,8 @@ Honest status. An untested device is listed as untested, not assumed to work.
 The runtime itself is known to work on this hardware class — the LÖVE 11.5 ARM64 build here is the same one shipped by [PortMaster](https://portmaster.games/), and [nx-redux](https://github.com/mohammadsyuhada/nx-redux) runs Gen1Recomp with the voxel mod on both platforms. What is untested is *this pak*.
 
 **On v0.4.0 specifically:** the new voxel mod **loads and renders on a Brick** — verified on hardware, walking the overworld in 3D, with the engine logging `loaded mod DRAMALESS_SHAPE 2.0.1` and persisting the voxel setting. The in-place upgrade from v0.3.0 was verified on **both** devices: merged over the old install, the superseded mod is removed on first launch, and no save was touched.
+
+**On v0.4.5 (Gen1Recomp 0.3.51), both devices passed `verify-device.sh` with 14 of 14 checks:** GLES 3.2 renderer at native resolution, audio with no underruns, the pak's controller mapping live, every dump found by SHA-256, saves outside the pak, NextUI back after quitting, and CPU state restored — on the Smart Pro S, cores `0-1,4` and 1320/2088 MHz before and after. By hand: launcher music and its new background video play without slowing the menu. Every imported version had to be re-imported once, as expected. 3D was run on the Brick only — see [Memory](#memory-swappak-is-required-not-optional).
 
 **On v0.4.4, both devices were re-verified over ADB.** Smart Pro S: GLES 3.2 on **Mali-G57**, window at the panel's native 1280×720, audio initialised with no underruns, and the pak's own controller mapping confirmed live. Brick: GLES 3.2 on **PowerVR Rogue GE8300**, 1024×768, same result — which is also why `MALI_CreateWindow` in a Brick log means nothing about the GPU.
 

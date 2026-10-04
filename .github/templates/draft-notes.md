@@ -13,4 +13,4 @@ Publishing makes this live in the Pak Store for every installed user, so work th
 
 It appears under **Tools**, not Games. Upgrading from v0.1.0: the first launch deletes `Roms/Gen1Recomp (Gen1Recomp)/` and anything in it, including box art you added; the old pak under `Emus/` is left for you to remove. Saves live in `.userdata/shared/Gen1Recomp` and are unaffected.
 
-You supply your own US Red, Blue or Yellow cartridge dump. No ROM is included.
+You supply your own US Red, Blue, Yellow, Gold or Silver cartridge dump. No ROM is included.
